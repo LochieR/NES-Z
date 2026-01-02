@@ -2,3 +2,4 @@
 zig-out/
 *.nes
 .DS_Store
+.vscode/
