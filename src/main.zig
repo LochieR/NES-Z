@@ -33,9 +33,6 @@ pub fn main() !void {
     cpu.s = 0xFD;
     cpu.pc = 0xC000;
     
-//false,false,true,false,false,true,false,true
-//false,true,true,false,false,true,false,false
-
     var trace_file = try std.fs.cwd().createFile("trace.log", .{});
     defer trace_file.close();
 

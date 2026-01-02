@@ -648,6 +648,8 @@ fn rti(self: *CPU) void {
     const hi = self.bus.read(0x0100 | @as(u16, @intCast(self.s)));
 
     self.pc = (@as(u16, @intCast(hi)) << 8) | @as(u16, @intCast(lo));
+
+    self.p.f = true; // flag 5 always on
 }
 
 // $A9, 2, 2
@@ -1839,8 +1841,9 @@ fn sre(self: *CPU, address: u16) void {
     self.p.c = (value & 0x01) != 0;
 
     value >>= 1;
-    self.a ^= value;
+    self.bus.write(address, value);
 
+    self.a ^= value;
     self.setZN(self.a);
 }
 
@@ -1854,6 +1857,8 @@ fn rra(self: *CPU, address: u16) void {
     }
 
     self.p.c = (value & 0x01) != 0;
+    self.bus.write(address, rotated);
+
     self.adc(rotated);
 }
 
