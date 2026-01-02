@@ -8,6 +8,17 @@ const Op = struct {
     cycles: u8
 };
 
+const StatusFlags = packed struct {
+    c: bool, // Carry
+    z: bool, // Zero
+    i: bool, // Interrupt Disable
+    d: bool, // Decimal
+    b: bool, // flag b
+    f: bool, // flag 5
+    v: bool, // Overflow
+    n: bool, // Negative
+};
+
 memory: [0x0800]u8 = undefined,
 rom_memory: [0x8000]u8 = undefined,
 
@@ -25,7 +36,16 @@ pc: u16 = 0,
 s: u8 = 0xFD,
 
 // status register
-p: u8 = 0x24,
+p: StatusFlags = .{
+    .c = false,
+    .z = false,
+    .i = true,
+    .d = false,
+    .b = false,
+    .f = true,
+    .v = false,
+    .n = false
+},
 
 cycles: u8 = 0,
 
@@ -239,18 +259,138 @@ fn initOps(self: *CPU) void {
     self.ops[0xD8] = .{ .exec = CPU.cld, .cycles = 2 };
     self.ops[0xF8] = .{ .exec = CPU.sed, .cycles = 2 };
     self.ops[0xB8] = .{ .exec = CPU.clv, .cycles = 2 };
+
+    // Illegal
+
+    // NOP
+    self.ops[0x04] = .{ .exec = CPU.nop_zp, .cycles = 3 };
+    self.ops[0x44] = .{ .exec = CPU.nop_zp, .cycles = 3 };
+    self.ops[0x64] = .{ .exec = CPU.nop_zp, .cycles = 3 };
+
+    self.ops[0x14] = .{ .exec = CPU.nop_zpx, .cycles = 4 };
+    self.ops[0x34] = .{ .exec = CPU.nop_zpx, .cycles = 4 };
+    self.ops[0x54] = .{ .exec = CPU.nop_zpx, .cycles = 4 };
+    self.ops[0x74] = .{ .exec = CPU.nop_zpx, .cycles = 4 };
+    self.ops[0xD4] = .{ .exec = CPU.nop_zpx, .cycles = 4 };
+    self.ops[0xF4] = .{ .exec = CPU.nop_zpx, .cycles = 4 };
+
+    self.ops[0x80] = .{ .exec = CPU.nop_imm, .cycles = 2 };
+    self.ops[0x82] = .{ .exec = CPU.nop_imm, .cycles = 2 };
+    self.ops[0x89] = .{ .exec = CPU.nop_imm, .cycles = 2 };
+    self.ops[0xC2] = .{ .exec = CPU.nop_imm, .cycles = 2 };
+    self.ops[0xE2] = .{ .exec = CPU.nop_imm, .cycles = 2 };
+
+    // triple NOP
+    
+    self.ops[0x0C] = .{ .exec = CPU.top, .cycles = 4 };
+
+    self.ops[0x1C] = .{ .exec = CPU.topx, .cycles = 4 };
+    self.ops[0x3C] = .{ .exec = CPU.topx, .cycles = 4 };
+    self.ops[0x5C] = .{ .exec = CPU.topx, .cycles = 4 };
+    self.ops[0x7C] = .{ .exec = CPU.topx, .cycles = 4 };
+    self.ops[0xDC] = .{ .exec = CPU.topx, .cycles = 4 };
+    self.ops[0xFC] = .{ .exec = CPU.topx, .cycles = 4 };
+
+    // LAX
+
+    self.ops[0xA7] = .{ .exec = CPU.lax_zp, .cycles = 3 };
+    self.ops[0xB7] = .{ .exec = CPU.lax_zpy, .cycles = 3 };
+    self.ops[0xAF] = .{ .exec = CPU.lax_abs, .cycles = 3 };
+    self.ops[0xBF] = .{ .exec = CPU.lax_absy, .cycles = 3 };
+    self.ops[0xA3] = .{ .exec = CPU.lax_dx, .cycles = 3 };
+    self.ops[0xB3] = .{ .exec = CPU.lax_dy, .cycles = 3 };
+
+    // SAX
+
+    self.ops[0x87] = .{ .exec = CPU.sax_zp, .cycles = 3 };
+    self.ops[0x97] = .{ .exec = CPU.sax_zpy, .cycles = 4 };
+    self.ops[0x83] = .{ .exec = CPU.sax_dx, .cycles = 6 };
+    self.ops[0x8F] = .{ .exec = CPU.sax_abs, .cycles = 4 };
+
+    // SBC
+
+    self.ops[0xEB] = .{ .exec = CPU.sbc_imm, .cycles = 2 };
+
+    // DCP
+
+    self.ops[0xC7] = .{ .exec = CPU.dcp_zp, .cycles = 5 };
+    self.ops[0xD7] = .{ .exec = CPU.dcp_zpx, .cycles = 6 };
+    self.ops[0xCF] = .{ .exec = CPU.dcp_abs, .cycles = 6 };
+    self.ops[0xDF] = .{ .exec = CPU.dcp_absx, .cycles = 7 };
+    self.ops[0xDB] = .{ .exec = CPU.dcp_absy, .cycles = 7 };
+    self.ops[0xC3] = .{ .exec = CPU.dcp_dx, .cycles = 8 };
+    self.ops[0xD3] = .{ .exec = CPU.dcp_dy, .cycles = 8 };
+
+    // ISB
+
+    self.ops[0xE7] = .{ .exec = CPU.isb_zp, .cycles = 5 };
+    self.ops[0xF7] = .{ .exec = CPU.isb_zpx, .cycles = 6 };
+    self.ops[0xEF] = .{ .exec = CPU.isb_abs, .cycles = 6 };
+    self.ops[0xFF] = .{ .exec = CPU.isb_absx, .cycles = 7 };
+    self.ops[0xFB] = .{ .exec = CPU.isb_absy, .cycles = 7 };
+    self.ops[0xE3] = .{ .exec = CPU.isb_dx, .cycles = 8 };
+    self.ops[0xF3] = .{ .exec = CPU.isb_dy, .cycles = 8 };
+
+    // SLO
+
+    self.ops[0x07] = .{ .exec = CPU.slo_zp, .cycles = 5 };
+    self.ops[0x17] = .{ .exec = CPU.slo_zpx, .cycles = 6 };
+    self.ops[0x0F] = .{ .exec = CPU.slo_abs, .cycles = 6 };
+    self.ops[0x1F] = .{ .exec = CPU.slo_absx, .cycles = 7 };
+    self.ops[0x1B] = .{ .exec = CPU.slo_absy, .cycles = 7 };
+    self.ops[0x03] = .{ .exec = CPU.slo_dx, .cycles = 8 };
+    self.ops[0x13] = .{ .exec = CPU.slo_dy, .cycles = 8 };
+
+    // RLA
+
+    self.ops[0x27] = .{ .exec = CPU.rla_zp, .cycles = 5 };
+    self.ops[0x37] = .{ .exec = CPU.rla_zpx, .cycles = 6 };
+    self.ops[0x2F] = .{ .exec = CPU.rla_abs, .cycles = 6 };
+    self.ops[0x3F] = .{ .exec = CPU.rla_absx, .cycles = 7 };
+    self.ops[0x3B] = .{ .exec = CPU.rla_absy, .cycles = 7 };
+    self.ops[0x23] = .{ .exec = CPU.rla_dx, .cycles = 8 };
+    self.ops[0x33] = .{ .exec = CPU.rla_dy, .cycles = 8 };
+
+    // SRE
+
+    self.ops[0x47] = .{ .exec = CPU.sre_zp, .cycles = 5 };
+    self.ops[0x57] = .{ .exec = CPU.sre_zpx, .cycles = 6 };
+    self.ops[0x4F] = .{ .exec = CPU.sre_abs, .cycles = 6 };
+    self.ops[0x5F] = .{ .exec = CPU.sre_absx, .cycles = 7 };
+    self.ops[0x5B] = .{ .exec = CPU.sre_absy, .cycles = 7 };
+    self.ops[0x43] = .{ .exec = CPU.sre_dx, .cycles = 8 };
+    self.ops[0x53] = .{ .exec = CPU.sre_dy, .cycles = 8 };
+
+    // RRA
+
+    self.ops[0x67] = .{ .exec = CPU.rra_zp, .cycles = 5 };
+    self.ops[0x77] = .{ .exec = CPU.rra_zpx, .cycles = 6 };
+    self.ops[0x6F] = .{ .exec = CPU.rra_abs, .cycles = 6 };
+    self.ops[0x7F] = .{ .exec = CPU.rra_absx, .cycles = 7 };
+    self.ops[0x7B] = .{ .exec = CPU.rra_absy, .cycles = 7 };
+    self.ops[0x63] = .{ .exec = CPU.rra_dx, .cycles = 8 };
+    self.ops[0x73] = .{ .exec = CPU.rra_dy, .cycles = 8 };
 }
 
 pub fn reset(self: *CPU) void {
     self.bus.ram = &self.memory;
 
     self.s = 0xFD;
-    self.p = 0x24;
+    self.p = .{
+        .c = false,
+        .z = false,
+        .i = true,
+        .d = false,
+        .b = false,
+        .f = true,
+        .v = false,
+        .n = false
+    };
     self.cycles = 7;
 
     const lo = self.bus.read(0xFFFC);
     const hi = self.bus.read(0xFFFD);
-    self.pc = (@as(u16, @intCast(hi)) << 8) | lo;
+    self.pc = (@as(u16, @intCast(hi)) << 8) | @as(u16, @intCast(lo));
 }
 
 fn fetch(self: *CPU) u8 {
@@ -323,7 +463,7 @@ fn adc_dx(self: *CPU) void {
 
 // $71 2 bytes, 5 cycles (6 if page crossed)
 fn adc_dy(self: *CPU) void {
-    self.adc(self.dx());
+    self.adc(self.dy());
 }
 
 // $E9 2 bytes 2 cycles
@@ -434,7 +574,8 @@ fn dey(self: *CPU) void {
 fn jmp_abs(self: *CPU) void {
     const lo: u8 = self.fetch();
     const hi: u8 = self.fetch();
-    self.pc = (@as(u16, hi) << 8) | @as(u16, lo);
+    const address = (@as(u16, @intCast(hi)) << 8) | @as(u16, @intCast(lo));
+    self.pc = address;
 }
 
 // $6C, 3, 5
@@ -457,18 +598,18 @@ fn jsr(self: *CPU) void {
 
     const return_address = self.pc - 1;
     self.bus.write(0x0100 | @as(u16, @intCast(self.s)), @as(u8, @intCast(return_address >> 8)));
-    self.s -= 1;
+    self.s -%= 1;
     self.bus.write(0x0100 | @as(u16, @intCast(self.s)), @as(u8, @truncate(return_address & 0xFF)));
-    self.s -= 1;
+    self.s -%= 1;
 
     self.pc = target;
 }
 
 // $60, 1, 6
 fn rts(self: *CPU) void {
-    self.s += 1;
+    self.s +%= 1;
     const lo = self.bus.read(0x0100 | @as(u16, @intCast(self.s)));
-    self.s += 1;
+    self.s +%= 1;
     const hi = self.bus.read(0x0100 | @as(u16, @intCast(self.s)));
 
     self.pc = ((@as(u16, @intCast(hi)) << 8) | @as(u16, @intCast(lo))) + 1;
@@ -484,10 +625,10 @@ fn brk(self: *CPU) void {
     self.bus.write(0x0100 | @as(u16, @intCast(self.s)), @as(u8, @truncate(self.pc & 0xFF)));
     self.s -= 1;
 
-    self.bus.write(0x0100 | @as(u16, @intCast(self.s)), self.p | 0x10);
+    self.bus.write(0x0100 | @as(u16, @intCast(self.s)), @as(u8, @bitCast(self.p)) | 0x10);
     self.s -= 1;
 
-    self.p |= 1 << 2; // I flag
+    self.p.i = true;
 
     const lo = self.bus.read(0xFFFE);
     const hi = self.bus.read(0xFFFF);
@@ -497,8 +638,8 @@ fn brk(self: *CPU) void {
 // $40, 1, 6
 fn rti(self: *CPU) void {
     self.s += 1;
-    self.p = self.bus.read(0x0100 | @as(u16, @intCast(self.s)));
-    self.p &= ~@as(u8, 0x10);
+    self.p = @bitCast(self.bus.read(0x0100 | @as(u16, @intCast(self.s))));
+    self.p = @bitCast(@as(u8, @bitCast(self.p)) & ~@as(u8, 0x10));
 
     self.s += 1;
     const lo = self.bus.read(0x0100 | @as(u16, @intCast(self.s)));
@@ -546,42 +687,42 @@ fn lda_dx(self: *CPU) void {
 
 // $B1, 2, 5 (6)
 fn lda_dy(self: *CPU) void {
-    self.lda(self.dx());
+    self.lda(self.dy());
 }
 
 // $85, 2, 3
 fn sta_zp(self: *CPU) void {
-    self.sta(self.zp());
+    self.sta(self.zp_addr());
 }
 
 // $95, 2, 4
 fn sta_zpx(self: *CPU) void {
-    self.sta(self.zpx());
+    self.sta(self.zpx_addr());
 }
 
 // $8D, 3, 4
 fn sta_abs(self: *CPU) void {
-    self.sta(self.abs());
+    self.sta(self.abs_addr());
 }
 
 // $9D, 3, 5
 fn sta_absx(self: *CPU) void {
-    self.sta(self.absx());
+    self.sta(self.absx_addr());
 }
 
 // $99, 3, 5
 fn sta_absy(self: *CPU) void {
-    self.sta(self.absy());
+    self.sta(self.absy_addr());
 }
 
 // $81, 2, 6
 fn sta_dx(self: *CPU) void {
-    self.sta(self.dx());
+    self.sta(self.dx_addr());
 }
 
 // $91, 2, 6
 fn sta_dy(self: *CPU) void {
-    self.sta(self.dx());
+    self.sta(self.dy_addr());
 }
 
 // $A2, 2, 2
@@ -760,12 +901,17 @@ fn lsr_absx(self: *CPU) void {
 
 // $6A, 1, 2
 fn ror_accum(self: *CPU) void {
-    const old_carry = self.getCarry();
-    const old_bit0: bool = (self.a & 0x01) != 0;
+    var rotated = self.a >> 1;
 
-    self.a = (self.a >> 1) | old_carry;
+    if (self.p.c) {
+        rotated |= 0x80;
+    }
 
-    self.setCarry(old_bit0);
+    self.p.c = (self.a & 0x01) != 0;
+    self.p.z = false;
+    self.p.n = false;
+
+    self.a = rotated;
     self.setZN(self.a);
 }
 
@@ -791,12 +937,17 @@ fn ror_absx(self: *CPU) void {
 
 // $2A, 1, 2
 fn rol_accum(self: *CPU) void {
-    const old_carry = self.getCarry();
-    const old_bit7: bool = (self.a & 0x80) != 0;
+    var rotated = self.a << 1;
 
-    self.a = (self.a << 1) | old_carry;
+    if (self.p.c) {
+        rotated |= 0x01;
+    }
 
-    self.setCarry(old_bit7);
+    self.p.c = (self.a & 0x80) != 0;
+    self.p.z = false;
+    self.p.n = false;
+
+    self.a = rotated;
     self.setZN(self.a);
 }
 
@@ -857,7 +1008,7 @@ fn and_dx(self: *CPU) void {
 
 // $31 2 bytes, 5 cycles (6 if page crossed)
 fn and_dy(self: *CPU) void {
-    self.bit_and(self.dx());
+    self.bit_and(self.dy());
 }
 
 // $09 2 bytes 2 cycles
@@ -897,7 +1048,7 @@ fn ora_dx(self: *CPU) void {
 
 // $11 2 bytes, 5 cycles (6 if page crossed)
 fn ora_dy(self: *CPU) void {
-    self.ora(self.dx());
+    self.ora(self.dy());
 }
 
 // $49 2 bytes 2 cycles
@@ -937,7 +1088,7 @@ fn eor_dx(self: *CPU) void {
 
 // $51 2 bytes, 5 cycles (6 if page crossed)
 fn eor_dy(self: *CPU) void {
-    self.eor(self.dx());
+    self.eor(self.dy());
 }
 
 // $24, 2, 3
@@ -987,7 +1138,7 @@ fn cmp_dx(self: *CPU) void {
 
 // $D1 2 bytes, 5 cycles (6 if page crossed)
 fn cmp_dy(self: *CPU) void {
-    self.cmp(self.dx());
+    self.cmp(self.dy());
 }
 
 // $E0 2 bytes 2 cycles
@@ -1086,9 +1237,9 @@ fn bvc(self: *CPU) void {
 // $70, 2, 2 (3, 4)
 fn bvs(self: *CPU) void {
     const offset: i8 = @bitCast(self.fetch());
-    const overflow = self.getOverflow();
-    if (overflow == 1) {
-        self.pc = @as(u16, @intCast(@as(i32, @intCast(self.pc)) + offset));
+    
+    if (self.getOverflow() == 1) {
+        self.pc = @as(u16, @intCast(@as(i132, @intCast(self.pc)) + offset));
     }
 }
 
@@ -1107,19 +1258,20 @@ fn pla(self: *CPU) void {
 
 // $08, 1, 3
 fn php(self: *CPU) void {
-    const value: u8 = self.p | 0x30;
+    var value = self.p;
+    value.b = true;
 
-    self.bus.write(0x0100 | @as(u16, @intCast(self.s)), value);
+    self.bus.write(0x0100 | @as(u16, @intCast(self.s)), @bitCast(value));
     self.s -= 1;
 }
 
 // $28, 1, 4
 fn plp(self: *CPU) void {
     self.s += 1;
-    self.p = self.bus.read(0x0100 | @as(u16, @intCast(self.s)));
+    self.p = @bitCast(self.bus.read(0x0100 | @as(u16, @intCast(self.s))));
 
-    self.p &= ~@as(u8, 0x10);
-    self.p |= 0x20;
+    self.p.b = false;
+    self.p.f = true;
 }
 
 // $18, 1, 2
@@ -1180,7 +1332,7 @@ fn sbc(self: *CPU, value: u8) void {
 
     self.setCarry(sum16 > 0xFF);
 
-    const result8: u8 = @as(u8, @intCast(sum16));
+    const result8: u8 = @as(u8, @truncate(sum16));
     const overflow: bool = ((self.a ^ result8) & (m_inverted ^ result8) & 0x80) != 0;
     self.setOverflow(overflow);
 
@@ -1255,27 +1407,35 @@ fn lsr(self: *CPU, address: u16) void {
 fn ror(self: *CPU, address: u16) void {
     const value = self.bus.read(address);
 
-    const old_carry = self.getCarry();
-    const old_bit0: bool = (value & 0x01) != 0;
+    var rotated = value >> 1;
 
-    const result = (value >> 1) | old_carry;
-    self.bus.write(address, result);
+    if (self.p.c) {
+        rotated |= 0x80;
+    }
 
-    self.setCarry(old_bit0);
-    self.setZN(result);
+    self.p.c = (value & 0x01) != 0;
+    self.p.z = false;
+    self.p.n = false;
+
+    self.bus.write(address, rotated);
+    self.setZN(rotated);
 }
 
 fn rol(self: *CPU, address: u16) void {
     const value = self.bus.read(address);
 
-    const old_carry = self.getCarry();
-    const old_bit7: bool = (value & 0x80) != 0;
+    var rotated = value << 1;
 
-    const result = (value << 1) | old_carry;
-    self.bus.write(address, result);
+    if (self.p.c) {
+        rotated |= 0x01;
+    }
 
-    self.setCarry(old_bit7);
-    self.setZN(result);
+    self.p.c = (value & 0x80) != 0;
+    self.p.z = false;
+    self.p.n = false;
+
+    self.bus.write(address, rotated);
+    self.setZN(rotated);
 }
 
 fn bit_and(self: *CPU, value: u8) void {
@@ -1294,29 +1454,407 @@ fn eor(self: *CPU, value: u8) void {
 }
 
 fn bit(self: *CPU, value: u8) void {
-    const result = self.a & value;
-
-    self.setZero(result == 0);
-    self.setNegative((result & 0x80) != 0);
-    self.setOverflow((result & 0x40) != 0);
+    self.setZero((self.a & value) == 0);
+    self.setOverflow((value & 0x40) != 0);
+    self.setNegative((value & 0x80) != 0);
+    self.enableFlag5();
 }
 
 fn cmp(self: *CPU, value: u8) void {
+    const result: u8 = self.a -% value;
+
     self.setCarry(self.a >= value);
     self.setZero(self.a == value);
-    self.setNegative(((self.a - value) & 0x80) == 0);
+    self.setNegative((result & 0x80) != 0);
 }
 
 fn cpx(self: *CPU, value: u8) void {
+    const result: u8 = self.x -% value;
+
     self.setCarry(self.x >= value);
     self.setZero(self.x == value);
-    self.setNegative(((self.x - value) & 0x80) == 0);
+    self.setNegative((result & 0x80) != 0);
 }
 
 fn cpy(self: *CPU, value: u8) void {
+    const result: u8 = self.y -% value;
+
     self.setCarry(self.y >= value);
     self.setZero(self.y == value);
-    self.setNegative(((self.y - value) & 0x80) == 0);
+    self.setNegative((result & 0x80) != 0);
+}
+
+// undocumented opcodes
+
+// $04, $44, $64, 2, 3
+fn nop_zp(self: *CPU) void {
+    self.pc +%= 1;
+}
+
+// $14, $34, $54, $74, $D4, $F4, 2, 4
+fn nop_zpx(self: *CPU) void {
+    self.pc +%= 1;
+}
+
+// $80, $82, $89, $C2, $E2, 2, 2
+fn nop_imm(self: *CPU) void {
+    self.pc +%= 1;
+}
+
+// $0C, 3, 4
+fn top(self: *CPU) void {
+    self.pc +%= 2;
+}
+
+// $1C, $3C, $5C, $7C, $DC, $FC, 3, 4 (5)
+fn topx(self: *CPU) void {
+    self.pc +%= 2;
+}
+
+// $A7, 2, 3
+fn lax_zp(self: *CPU) void {
+    self.lax(self.zp_addr());
+}
+
+// $B7, 2, 4
+fn lax_zpy(self: *CPU) void {
+    self.lax(self.zpy_addr());
+}
+
+// $AF, 3, 4
+fn lax_abs(self: *CPU) void {
+    self.lax(self.abs_addr());
+}
+
+// $BF, 3, 4 (5)
+fn lax_absy(self: *CPU) void {
+    self.lax(self.absy_addr());
+}
+
+// $A3, 2, 6
+fn lax_dx(self: *CPU) void {
+    self.lax(self.dx_addr());
+}
+
+// $B3, 2, 5 (6)
+fn lax_dy(self: *CPU) void {
+    self.lax(self.dy_addr());
+}
+
+// $87, 2, 3
+fn sax_zp(self: *CPU) void {
+    self.sax(self.zp_addr());
+}
+
+// $97, 2, 4
+fn sax_zpy(self: *CPU) void {
+    self.sax(self.zpy_addr());
+}
+
+// $83, 2, 6
+fn sax_dx(self: *CPU) void {
+    self.sax(self.dx_addr());
+}
+
+// $8F, 3, 4
+fn sax_abs(self: *CPU) void {
+    self.sax(self.abs_addr());
+}
+
+// $C7, 2, 5
+fn dcp_zp(self: *CPU) void {
+    self.dcp(self.zp_addr());
+}
+
+// $D7, 2, 6
+fn dcp_zpx(self: *CPU) void {
+    self.dcp(self.zpx_addr());
+}
+
+// $CF, 3, 6
+fn dcp_abs(self: *CPU) void {
+    self.dcp(self.abs_addr());
+}
+
+// $DF, 3, 7
+fn dcp_absx(self: *CPU) void {
+    self.dcp(self.absx_addr());
+}
+
+// $DB, 3, 7
+fn dcp_absy(self: *CPU) void {
+    self.dcp(self.absy_addr());
+}
+
+// $C3, 2, 8
+fn dcp_dx(self: *CPU) void {
+    self.dcp(self.dx_addr());
+}
+
+// $D3, 2, 8
+fn dcp_dy(self: *CPU) void {
+    self.dcp(self.dy_addr());
+}
+
+// $E7, 2, 5
+fn isb_zp(self: *CPU) void {
+    self.isb(self.zp_addr());
+}
+
+// $F7, 2, 6
+fn isb_zpx(self: *CPU) void {
+    self.isb(self.zpx_addr());
+}
+
+// $EF, 3, 6
+fn isb_abs(self: *CPU) void {
+    self.isb(self.abs_addr());
+}
+
+// $FF, 3, 7
+fn isb_absx(self: *CPU) void {
+    self.isb(self.absx_addr());
+}
+
+// $FB, 3, 7
+fn isb_absy(self: *CPU) void {
+    self.isb(self.absy_addr());
+}
+
+// $E3, 2, 8
+fn isb_dx(self: *CPU) void {
+    self.isb(self.dx_addr());
+}
+
+// $F3, 2, 8
+fn isb_dy(self: *CPU) void {
+    self.isb(self.dy_addr());
+}
+
+// $07, 2, 5
+fn slo_zp(self: *CPU) void {
+    self.slo(self.zp_addr());
+}
+
+// $17, 2, 6
+fn slo_zpx(self: *CPU) void {
+    self.slo(self.zpx_addr());
+}
+
+// $0F, 3, 6
+fn slo_abs(self: *CPU) void {
+    self.slo(self.abs_addr());
+}
+
+// $1F, 3, 7
+fn slo_absx(self: *CPU) void {
+    self.slo(self.absx_addr());
+}
+
+// $1B, 3, 7
+fn slo_absy(self: *CPU) void {
+    self.slo(self.absy_addr());
+}
+
+// $03, 2, 8
+fn slo_dx(self: *CPU) void {
+    self.slo(self.dx_addr());
+}
+
+// $13, 2, 8
+fn slo_dy(self: *CPU) void {
+    self.slo(self.dy_addr());
+}
+
+// $27, 2, 5
+fn rla_zp(self: *CPU) void {
+    self.rla(self.zp_addr());
+}
+
+// $37, 2, 6
+fn rla_zpx(self: *CPU) void {
+    self.rla(self.zpx_addr());
+}
+
+// $2F, 3, 6
+fn rla_abs(self: *CPU) void {
+    self.rla(self.abs_addr());
+}
+
+// $3F, 3, 7
+fn rla_absx(self: *CPU) void {
+    self.rla(self.absx_addr());
+}
+
+// $3B, 3, 7
+fn rla_absy(self: *CPU) void {
+    self.rla(self.absy_addr());
+}
+
+// $23, 2, 8
+fn rla_dx(self: *CPU) void {
+    self.rla(self.dx_addr());
+}
+
+// $33, 2, 8
+fn rla_dy(self: *CPU) void {
+    self.rla(self.dy_addr());
+}
+
+// $47, 2, 5
+fn sre_zp(self: *CPU) void {
+    self.sre(self.zp_addr());
+}
+
+// $57, 2, 6
+fn sre_zpx(self: *CPU) void {
+    self.sre(self.zpx_addr());
+}
+
+// $4F, 3, 6
+fn sre_abs(self: *CPU) void {
+    self.sre(self.abs_addr());
+}
+
+// $5F, 3, 7
+fn sre_absx(self: *CPU) void {
+    self.sre(self.absx_addr());
+}
+
+// $5B, 3, 7
+fn sre_absy(self: *CPU) void {
+    self.sre(self.absy_addr());
+}
+
+// $43, 2, 8
+fn sre_dx(self: *CPU) void {
+    self.sre(self.dx_addr());
+}
+
+// $53, 2, 8
+fn sre_dy(self: *CPU) void {
+    self.sre(self.dy_addr());
+}
+
+// $67, 2, 5
+fn rra_zp(self: *CPU) void {
+    self.rra(self.zp_addr());
+}
+
+// $77, 2, 6
+fn rra_zpx(self: *CPU) void {
+    self.rra(self.zpx_addr());
+}
+
+// $6F, 3, 6
+fn rra_abs(self: *CPU) void {
+    self.rra(self.abs_addr());
+}
+
+// $7F, 3, 7
+fn rra_absx(self: *CPU) void {
+    self.rra(self.absx_addr());
+}
+
+// $7B, 3, 7
+fn rra_absy(self: *CPU) void {
+    self.rra(self.absy_addr());
+}
+
+// $63, 2, 8
+fn rra_dx(self: *CPU) void {
+    self.rra(self.dx_addr());
+}
+
+// $73, 2, 8
+fn rra_dy(self: *CPU) void {
+    self.rra(self.dy_addr());
+}
+
+fn lax(self: *CPU, address: u16) void {
+    self.a = self.bus.read(address);
+    self.x = self.a;
+    self.setZN(self.a);
+}
+
+fn sax(self: *CPU, address: u16) void {
+    const result = self.x & self.a;
+    self.bus.write(address, result);
+}
+
+fn dcp(self: *CPU, address: u16) void {
+    var original = self.bus.read(address);
+    original -%= 1;
+    self.bus.write(address, original);
+
+    const diff = self.a -% original;
+    
+    self.p.c = self.a >= original;
+    self.setZN(diff);
+}
+
+fn isb(self: *CPU, address: u16) void {
+    var value = self.bus.read(address);
+    value +%= 1;
+    self.bus.write(address, value);
+
+    self.sbc(value);
+}
+
+fn slo(self: *CPU, address: u16) void {
+    var value = self.bus.read(address);
+    
+    self.p.c = (value & 0x80) != 0;
+    value <<= 1;
+
+    self.bus.write(address, value);
+
+    self.a |= value;
+    self.setZN(self.a);
+}
+
+fn rla(self: *CPU, address: u16) void {
+    const value = self.bus.read(address);
+
+    var rotated = value << 1;
+
+    if (self.p.c) {
+        rotated |= 0x01;
+    }
+
+    self.p.c = (value & 0x80) != 0;
+    self.p.z = false;
+    self.p.n = false;
+
+    self.setZN(rotated);
+
+    self.bus.write(address, rotated);
+    self.a &= rotated;
+    self.setZN(self.a);
+}
+
+fn sre(self: *CPU, address: u16) void {
+    var value = self.bus.read(address);
+
+    self.p.c = (value & 0x01) != 0;
+
+    value >>= 1;
+    self.a ^= value;
+
+    self.setZN(self.a);
+}
+
+fn rra(self: *CPU, address: u16) void {
+    const value = self.bus.read(address);
+
+    var rotated = value >> 1;
+
+    if (self.p.c) {
+        rotated |= 0x80;
+    }
+
+    self.p.c = (value & 0x01) != 0;
+    self.adc(rotated);
 }
 
 // helper
@@ -1362,12 +1900,12 @@ fn zp_addr(self: *CPU) u16 {
 }
 
 fn zpx_addr(self: *CPU) u16 {
-    const address = (@as(u16, @intCast(self.fetch())) + @as(u16, @intCast(self.x))) % 0x100;
+    const address = @as(u16, @intCast((self.fetch() +% self.x)));
     return address;
 }
 
 fn zpy_addr(self: *CPU) u16 {
-    const address = (@as(u16, @intCast(self.fetch())) + @as(u16, @intCast(self.y))) % 0x100;
+    const address = @as(u16, @intCast((self.fetch() +% self.y)));
     return address;
 }
 
@@ -1384,7 +1922,7 @@ fn absx_addr(self: *CPU) u16 {
     const hi = self.fetch();
     const address: u16 = (@as(u16, @intCast(hi)) << 8) | @as(u16, @intCast(lo));
 
-    return address + self.x;
+    return address +% self.x;
 }
 
 fn absy_addr(self: *CPU) u16 {
@@ -1392,7 +1930,7 @@ fn absy_addr(self: *CPU) u16 {
     const hi = self.fetch();
     const address: u16 = (@as(u16, @intCast(hi)) << 8) | @as(u16, @intCast(lo));
 
-    return address + self.y;
+    return address +% self.y;
 }
 
 fn dx_addr(self: *CPU) u16 {
@@ -1412,84 +1950,55 @@ fn dy_addr(self: *CPU) u16 {
     const lhs = @as(u16, @intCast(self.bus.read(@intCast(arg))));
     const middle = @as(u16, @intCast(self.bus.read((@as(u16, @intCast(arg)) + 1) % 0x100)));
 
-    const address = lhs + middle * 256 + @as(u16, @intCast(self.y));
+    const address = lhs + middle * 256 +% @as(u16, @intCast(self.y));
     return address;
 }
 
 fn setZN(self: *CPU, value: u8) void {
-    if (value == 0) {
-        self.p |= 1 << 1; // zero flag
-    } else {
-        self.p &= ~@as(u8, 1 << 1);
-    }
-
-    if ((value & 0x80) != 0) {
-        self.p |= 1 << 7; // negative flag
-    } else {
-        self.p &= ~@as(u8, 1 << 7);
-    }
+    self.p.z = value == 0;
+    self.p.n = (value & 0x80) != 0;
 }
 
 fn getCarry(self: *CPU) u8 {
-    return if ((self.p & 1) != 0) 1 else 0;
+    return if (self.p.c) 1 else 0;
 }
 
 fn getZero(self: *CPU) u8 {
-    return if ((self.p & (1 << 1)) != 0) 1 else 0;
+    return if (self.p.z) 1 else 0;
 }
 
 fn getNegative(self: *CPU) u8 {
-    return if ((self.p & (1 << 7)) != 0) 1 else 0;
+    return if (self.p.n) 1 else 0;
 }
 
 fn getOverflow(self: *CPU) u8 {
-    return if ((self.p & (1 << 6)) != 0) 1 else 0;
+    return if (self.p.v) 1 else 0;
 }
 
 fn setCarry(self: *CPU, c: bool) void {
-    if (c) {
-        self.p |= 1;
-    } else {
-        self.p &= ~@as(u8, 1);
-    }
+    self.p.c = c;
 }
 
 fn setInterruptDisable(self: *CPU, i: bool) void {
-    if (i) {
-        self.p |= 1 << 2;
-    } else {
-        self.p &= ~@as(u8, 1 << 2);
-    }
+    self.p.i = i;
 }
 
 fn setDecimal(self: *CPU, d: bool) void {
-    if (d) {
-        self.p |= 1 << 3;
-    } else {
-        self.p &= ~@as(u8, 1 << 3);
-    }
+    self.p.d = d;
 }
 
 fn setOverflow(self: *CPU, v: bool) void {
-    if (v) {
-        self.p |= 1 << 6;
-    } else {
-        self.p &= ~@as(u8, 1 << 6);
-    }
+    self.p.v = v;
 }
 
 fn setZero(self: *CPU, z: bool) void {
-    if (z) {
-        self.p |= 1 << 1;
-    } else {
-        self.p &= ~@as(u8, 1 << 1);
-    }
+    self.p.z = z;
 }
 
 fn setNegative(self: *CPU, n: bool) void {
-    if (n) {
-        self.p |= 1 << 7;
-    } else {
-        self.p &= ~@as(u8, 1 << 7);
-    }
+    self.p.n = n;
+}
+
+fn enableFlag5(self: *CPU) void {
+    self.p.f = true;
 }
