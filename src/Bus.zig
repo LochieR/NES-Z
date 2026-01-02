@@ -17,6 +17,8 @@ pub fn read(self: *Bus, address: u16) u8 {
 pub fn write(self: *Bus, address: u16, value: u8) void {
     switch (address) {
         0x0000...0x1FFF => self.ram.*[address % 0x0800] = value,
+
+        0x4000...0x4017 => return, // for APU and I/O registers
         0x8000...0xFFFF => return,
 
         else => unreachable // not implemented
