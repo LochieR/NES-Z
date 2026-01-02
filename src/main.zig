@@ -14,13 +14,9 @@ pub fn main() !void {
     const rom = try input.loadINesROM(std.heap.c_allocator, nestest);
 
     if (rom.prg_rom.len == 0x4000) {
-        // Copy first 16 KB to $8000
         @memcpy(cpu.rom_memory[0x0000..0x4000], rom.prg_rom);
-
-        // Mirror it to $C000
         @memcpy(cpu.rom_memory[0x4000..0x8000], rom.prg_rom);
     } else if (rom.prg_rom.len == 0x8000) {
-        // 32 KB PRG ROM
         @memcpy(cpu.rom_memory[0x0000..0x8000], rom.prg_rom);
     }
 
@@ -40,20 +36,13 @@ pub fn main() !void {
 
     var steps: u64 = 0;
     while (true) {
-        if (steps == 304) {
-            std.debug.print("", .{});
-            std.debug.print("", .{});
-            std.debug.print("", .{});
-            std.debug.print("", .{});
-            std.debug.print("", .{});
-            std.debug.print("", .{});
-        }
-
         try trace(&cpu, &trace_writer);
-        cpu.debug_cycle();
+        const cycles = cpu.step();
+        //ppu.step(cycles * 3);
+        _ = cycles;
         steps += 1;
 
-        if (steps > 8991) {
+        if (steps > 8990) {
             break;
         }
     }
@@ -78,7 +67,7 @@ fn trace(cpu: *CPU, writer: anytype) !void {
     const op2 = cpu.bus.read(pc + 2);
 
     try writer.print(
-        "{X:04}  {X:02} {X:02} {X:02}\t\t\t\tA:{X:02} X:{X:02} Y:{X:02} P:{X:02} SP:{X:02}\n",
+        "{X:04}  {X:02} {X:02} {X:02}\t\t\t\tA:{X:02} X:{X:02} Y:{X:02} P:{X:02} SP:{X:02} CYC:{}\n",
         .{
             pc,
             op0,
@@ -89,6 +78,7 @@ fn trace(cpu: *CPU, writer: anytype) !void {
             cpu.y,
             @as(u8, @bitCast(cpu.p)),
             cpu.s,
+            cpu.cycles
         }
     );
 }
