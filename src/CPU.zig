@@ -283,12 +283,12 @@ fn initOps(self: *CPU) void {
     
     self.ops[0x0C] = .{ .exec = CPU.top };
 
-    self.ops[0x1C] = .{ .exec = CPU.topx };
-    self.ops[0x3C] = .{ .exec = CPU.topx };
-    self.ops[0x5C] = .{ .exec = CPU.topx };
-    self.ops[0x7C] = .{ .exec = CPU.topx };
-    self.ops[0xDC] = .{ .exec = CPU.topx };
-    self.ops[0xFC] = .{ .exec = CPU.topx };
+    self.ops[0x1C] = .{ .exec = CPU.top_absx };
+    self.ops[0x3C] = .{ .exec = CPU.top_absx };
+    self.ops[0x5C] = .{ .exec = CPU.top_absx };
+    self.ops[0x7C] = .{ .exec = CPU.top_absx };
+    self.ops[0xDC] = .{ .exec = CPU.top_absx };
+    self.ops[0xFC] = .{ .exec = CPU.top_absx };
 
     // LAX
 
@@ -547,7 +547,7 @@ fn inc_abs(self: *CPU) u8 {
 fn inc_absx(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.inc(self.absx_addr(&extra_cycles));
-    return 7 + extra_cycles;
+    return 7;
 }
 
 // $C6, 2, 5
@@ -572,7 +572,7 @@ fn dec_abs(self: *CPU) u8 {
 fn dec_absx(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.dec(self.absx_addr(&extra_cycles));
-    return 7 + extra_cycles;
+    return 7;
 }
 
 // $E8, 1, 2
@@ -764,14 +764,14 @@ fn sta_abs(self: *CPU) u8 {
 fn sta_absx(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.sta(self.absx_addr(&extra_cycles));
-    return 5 + extra_cycles;
+    return 5;
 }
 
 // $99, 3, 5
 fn sta_absy(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.sta(self.absy_addr(&extra_cycles));
-    return 5 + extra_cycles;
+    return 5;
 }
 
 // $81, 2, 6
@@ -784,7 +784,7 @@ fn sta_dx(self: *CPU) u8 {
 fn sta_dy(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.sta(self.dy_addr(&extra_cycles));
-    return 6 + extra_cycles;
+    return 6;
 }
 
 // $A2, 2, 2
@@ -960,7 +960,7 @@ fn asl_abs(self: *CPU) u8 {
 fn asl_absx(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.asl(self.absx_addr(&extra_cycles));
-    return 7 + extra_cycles;
+    return 7;
 }
 
 // $4A, 1, 2
@@ -994,7 +994,7 @@ fn lsr_abs(self: *CPU) u8 {
 fn lsr_absx(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.lsr(self.absx_addr(&extra_cycles));
-    return 7 + extra_cycles;
+    return 7;
 }
 
 // $6A, 1, 2
@@ -1036,7 +1036,7 @@ fn ror_abs(self: *CPU) u8 {
 fn ror_absx(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.ror(self.absx_addr(&extra_cycles));
-    return 7 + extra_cycles;
+    return 7;
 }
 
 // $2A, 1, 2
@@ -1078,7 +1078,7 @@ fn rol_abs(self: *CPU) u8 {
 fn rol_absx(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.rol(self.absx_addr(&extra_cycles));
-    return 7 + extra_cycles;
+    return 7;
 }
 
 // $29 2 bytes 2 cycles
@@ -1463,7 +1463,7 @@ fn bvc(self: *CPU) u8 {
     if (overflow == 0) {
         const old_pc = self.pc;
         self.pc = @as(u16, @intCast(@as(i32, @intCast(self.pc)) + offset));
-        cycles += 2;
+        cycles += 1;
 
         if ((old_pc & 0xFF00) != (self.pc & 0xFF00)) {
             cycles += 1;
@@ -1766,14 +1766,16 @@ fn nop_imm(self: *CPU) u8 {
 
 // $0C, 3, 4
 fn top(self: *CPU) u8 {
-    self.pc +%= 2;
+    _ = self.abs_addr();
     return 4;
 }
 
 // $1C, $3C, $5C, $7C, $DC, $FC, 3, 4 (5)
-fn topx(self: *CPU) u8 {
-    self.pc +%= 2;
-    return 4;
+fn top_absx(self: *CPU) u8 {
+    var extra_cycles: u8 = undefined;
+    _ = self.absx_addr(&extra_cycles);
+
+    return 4 + extra_cycles;
 }
 
 // $A7, 2, 3
@@ -1860,14 +1862,14 @@ fn dcp_abs(self: *CPU) u8 {
 fn dcp_absx(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.dcp(self.absx_addr(&extra_cycles));
-    return 7 + extra_cycles;
+    return 7;
 }
 
 // $DB, 3, 7
 fn dcp_absy(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.dcp(self.absy_addr(&extra_cycles));
-    return 7 + extra_cycles;
+    return 7;
 }
 
 // $C3, 2, 8
@@ -1880,7 +1882,7 @@ fn dcp_dx(self: *CPU) u8 {
 fn dcp_dy(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.dcp(self.dy_addr(&extra_cycles));
-    return 8 + extra_cycles;
+    return 8;
 }
 
 // $E7, 2, 5
@@ -1905,14 +1907,14 @@ fn isb_abs(self: *CPU) u8 {
 fn isb_absx(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.isb(self.absx_addr(&extra_cycles));
-    return 7 + extra_cycles;
+    return 7;
 }
 
 // $FB, 3, 7
 fn isb_absy(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.isb(self.absy_addr(&extra_cycles));
-    return 7 + extra_cycles;
+    return 7;
 }
 
 // $E3, 2, 8
@@ -1925,7 +1927,7 @@ fn isb_dx(self: *CPU) u8 {
 fn isb_dy(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.isb(self.dy_addr(&extra_cycles));
-    return 8 + extra_cycles;
+    return 8;
 }
 
 // $07, 2, 5
@@ -1950,14 +1952,14 @@ fn slo_abs(self: *CPU) u8 {
 fn slo_absx(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.slo(self.absx_addr(&extra_cycles));
-    return 7 + extra_cycles;
+    return 7;
 }
 
 // $1B, 3, 7
 fn slo_absy(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.slo(self.absy_addr(&extra_cycles));
-    return 7 + extra_cycles;
+    return 7;
 }
 
 // $03, 2, 8
@@ -1970,7 +1972,7 @@ fn slo_dx(self: *CPU) u8 {
 fn slo_dy(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.slo(self.dy_addr(&extra_cycles));
-    return 8 + extra_cycles;
+    return 8;
 }
 
 // $27, 2, 5
@@ -1995,14 +1997,14 @@ fn rla_abs(self: *CPU) u8 {
 fn rla_absx(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.rla(self.absx_addr(&extra_cycles));
-    return 7 + extra_cycles;
+    return 7;
 }
 
 // $3B, 3, 7
 fn rla_absy(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.rla(self.absy_addr(&extra_cycles));
-    return 7 + extra_cycles;
+    return 7;
 }
 
 // $23, 2, 8
@@ -2015,7 +2017,7 @@ fn rla_dx(self: *CPU) u8 {
 fn rla_dy(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.rla(self.dy_addr(&extra_cycles));
-    return 8 + extra_cycles;
+    return 8;
 }
 
 // $47, 2, 5
@@ -2040,14 +2042,14 @@ fn sre_abs(self: *CPU) u8 {
 fn sre_absx(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.sre(self.absx_addr(&extra_cycles));
-    return 7 + extra_cycles;
+    return 7;
 }
 
 // $5B, 3, 7
 fn sre_absy(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.sre(self.absy_addr(&extra_cycles));
-    return 7 + extra_cycles;
+    return 7;
 }
 
 // $43, 2, 8
@@ -2060,7 +2062,7 @@ fn sre_dx(self: *CPU) u8 {
 fn sre_dy(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.sre(self.dy_addr(&extra_cycles));
-    return 8 + extra_cycles;
+    return 8;
 }
 
 // $67, 2, 5
@@ -2085,14 +2087,14 @@ fn rra_abs(self: *CPU) u8 {
 fn rra_absx(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.rra(self.absx_addr(&extra_cycles));
-    return 7 + extra_cycles;
+    return 7;
 }
 
 // $7B, 3, 7
 fn rra_absy(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.rra(self.absy_addr(&extra_cycles));
-    return 7 + extra_cycles;
+    return 7;
 }
 
 // $63, 2, 8
@@ -2105,7 +2107,7 @@ fn rra_dx(self: *CPU) u8 {
 fn rra_dy(self: *CPU) u8 {
     var extra_cycles: u8 = undefined;
     self.rra(self.dy_addr(&extra_cycles));
-    return 8 + extra_cycles;
+    return 8;
 }
 
 fn lax(self: *CPU, address: u16) void {
