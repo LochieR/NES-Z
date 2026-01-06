@@ -14,6 +14,22 @@ pub fn build(b: *std.Build) !void {
 
     _ = try std.fmt.bufPrint(buffer, "{s}{s}", .{vulkan_sdk_path, vulkan_xml_path});
 
+    const vertex_shader_compile = b.addSystemCommand(&.{
+        "glslc",
+        "-fshader-stage=vert",
+        "shaders/vertex.glsl",
+        "-o",
+        "shaders/vertex.spv"
+    });
+
+    const fragment_shader_compile = b.addSystemCommand(&.{
+        "glslc",
+        "-fshader-stage=frag",
+        "shaders/fragment.glsl",
+        "-o",
+        "shaders/fragment.spv"
+    });
+
     const vulkan = b.dependency("vulkan_zig", .{
         .registry = @as([]const u8, buffer)
     }).module("vulkan-zig");
@@ -142,10 +158,21 @@ pub fn build(b: *std.Build) !void {
         glfw_c.root_module.linkFramework("QuartzCore", .{});
     }
 
+    exe.step.dependOn(&vertex_shader_compile.step);
+    exe.step.dependOn(&fragment_shader_compile.step);
+
     exe.root_module.linkLibrary(glfw_c);
     exe.root_module.addIncludePath(b.path("deps/glfw/include"));
 
     exe.root_module.addImport("vulkan", vulkan);
+
+    exe.root_module.addAnonymousImport("vertex.spv", .{
+        .root_source_file = b.path("shaders/vertex.spv")
+    });
+
+    exe.root_module.addAnonymousImport("fragment.spv", .{
+        .root_source_file = b.path("shaders/fragment.spv")
+    });
 
     b.installArtifact(exe);
 

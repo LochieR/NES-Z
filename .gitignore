@@ -3,3 +3,5 @@ zig-out/
 *.nes
 .DS_Store
 .vscode/
+*.spv
+*.log

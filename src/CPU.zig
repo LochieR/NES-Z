@@ -47,7 +47,9 @@ p: StatusFlags = .{
 },
 
 cycles: u64 = 0,
+remaining_cycles: u8 = 0,
 
+nmi_requested: bool = false,
 bus: Bus = .{},
 
 ops: [256]Op = undefined,
@@ -280,7 +282,7 @@ fn initOps(self: *CPU) void {
     self.ops[0xE2] = .{ .exec = CPU.nop_imm };
 
     // triple NOP
-    
+
     self.ops[0x0C] = .{ .exec = CPU.top };
 
     self.ops[0x1C] = .{ .exec = CPU.top_absx };
@@ -389,7 +391,7 @@ pub fn reset(self: *CPU) void {
 
     const lo = self.bus.read(0xFFFC);
     const hi = self.bus.read(0xFFFD);
-    self.pc = (@as(u16, @intCast(hi)) << 8) | @as(u16, @intCast(lo));
+    self.pc = @as(u16, @intCast(lo)) | (@as(u16, @intCast(hi)) << 8);
 }
 
 fn fetch(self: *CPU) u8 {
@@ -398,14 +400,38 @@ fn fetch(self: *CPU) u8 {
     return value;
 }
 
-pub fn step(self: *CPU) u8 {
-    const opcode = self.fetch();
-    const instruction = &self.ops[opcode];
+pub fn step(self: *CPU) void {
+    if (self.remaining_cycles == 0 and self.nmi_requested) {
+        self.nmi_requested = false;
+        self.handleNMI();
+        self.remaining_cycles = 7;
+    }
 
-    const cycles = instruction.exec(self);
-    self.cycles += cycles;
+    if (self.remaining_cycles == 0) {
+        const opcode = self.fetch();
+        const instruction = &self.ops[opcode];
 
-    return cycles;
+        self.remaining_cycles = instruction.exec(self);
+    }
+
+    self.remaining_cycles -= 1;
+    self.cycles += 1;
+}
+
+fn handleNMI(self: *CPU) void {
+    self.push(@truncate(self.pc >> 8));
+    self.push(@truncate(self.pc));
+
+    var status = self.p;
+    status.b = false;
+    status.f = true;
+    self.push(@bitCast(status));
+
+    self.setInterruptDisable(true);
+
+    const lo = self.bus.read(0xFFFA);
+    const hi = self.bus.read(0xFFFB);
+    self.pc = (@as(u16, @intCast(hi)) << 8) | lo;
 }
 
 pub fn debug_cycle(self: *CPU) void {
@@ -632,10 +658,8 @@ fn jsr(self: *CPU) u8 {
     const target: u16 = (@as(u16, @intCast(hi)) << 8) | @as(u16, @intCast(lo));
 
     const return_address = self.pc - 1;
-    self.bus.write(0x0100 | @as(u16, @intCast(self.s)), @as(u8, @intCast(return_address >> 8)));
-    self.s -%= 1;
-    self.bus.write(0x0100 | @as(u16, @intCast(self.s)), @as(u8, @truncate(return_address & 0xFF)));
-    self.s -%= 1;
+    self.push(@intCast(return_address >> 8));
+    self.push(@truncate(return_address & 0xFF));
 
     self.pc = target;
     return 6;
@@ -643,10 +667,8 @@ fn jsr(self: *CPU) u8 {
 
 // $60, 1, 6
 fn rts(self: *CPU) u8 {
-    self.s +%= 1;
-    const lo = self.bus.read(0x0100 | @as(u16, @intCast(self.s)));
-    self.s +%= 1;
-    const hi = self.bus.read(0x0100 | @as(u16, @intCast(self.s)));
+    const lo = self.pop();
+    const hi = self.pop();
 
     self.pc = ((@as(u16, @intCast(hi)) << 8) | @as(u16, @intCast(lo))) + 1;
     return 6;
@@ -656,14 +678,9 @@ fn rts(self: *CPU) u8 {
 fn brk(self: *CPU) u8 {
     self.pc += 1;
 
-    self.bus.write(0x0100 | @as(u16, @intCast(self.s)), @as(u8, @truncate(self.pc >> 8)));
-    self.s -= 1;
-
-    self.bus.write(0x0100 | @as(u16, @intCast(self.s)), @as(u8, @truncate(self.pc & 0xFF)));
-    self.s -= 1;
-
-    self.bus.write(0x0100 | @as(u16, @intCast(self.s)), @as(u8, @bitCast(self.p)) | 0x10);
-    self.s -= 1;
+    self.push(@truncate(self.pc >> 8));
+    self.push(@truncate(self.pc & 0xFF));
+    self.push(@as(u8, @bitCast(self.p)) | 0x10);
 
     self.p.i = true;
 
@@ -675,15 +692,11 @@ fn brk(self: *CPU) u8 {
 
 // $40, 1, 6
 fn rti(self: *CPU) u8 {
-    self.s += 1;
-    self.p = @bitCast(self.bus.read(0x0100 | @as(u16, @intCast(self.s))));
+    self.p = @bitCast(self.pop());
     self.p = @bitCast(@as(u8, @bitCast(self.p)) & ~@as(u8, 0x10));
 
-    self.s += 1;
-    const lo = self.bus.read(0x0100 | @as(u16, @intCast(self.s)));
-
-    self.s += 1;
-    const hi = self.bus.read(0x0100 | @as(u16, @intCast(self.s)));
+    const lo = self.pop();
+    const hi = self.pop();
 
     self.pc = (@as(u16, @intCast(hi)) << 8) | @as(u16, @intCast(lo));
 
@@ -1344,7 +1357,7 @@ fn bcc(self: *CPU) u8 {
         const old_pc = self.pc;
         self.pc = @as(u16, @intCast(@as(i32, @intCast(self.pc)) + offset));
         cycles += 1;
-        
+
         if ((old_pc & 0xFF00) != (self.pc & 0xFF00)) {
             cycles += 1;
         }
@@ -1364,7 +1377,7 @@ fn bcs(self: *CPU) u8 {
         const old_pc = self.pc;
         self.pc = @as(u16, @intCast(@as(i32, @intCast(self.pc)) + offset));
         cycles += 1;
-        
+
         if ((old_pc & 0xFF00) != (self.pc & 0xFF00)) {
             cycles += 1;
         }
@@ -1416,11 +1429,9 @@ fn bne(self: *CPU) u8 {
 // $10, 2, 2 (3, 4)
 fn bpl(self: *CPU) u8 {
     const offset: i8 = @bitCast(self.fetch());
-    const negative = self.getNegative();
-
     var cycles: u8 = 2;
 
-    if (negative == 0) {
+    if (!self.p.n) {
         const old_pc = self.pc;
         self.pc = @as(u16, @intCast(@as(i32, @intCast(self.pc)) + offset));
         cycles += 1;
@@ -1476,12 +1487,12 @@ fn bvc(self: *CPU) u8 {
 // $70, 2, 2 (3, 4)
 fn bvs(self: *CPU) u8 {
     const offset: i8 = @bitCast(self.fetch());
-    
+
     var cycles: u8 = 2;
 
     if (self.getOverflow() == 1) {
         const old_pc = self.pc;
-        self.pc = @as(u16, @intCast(@as(i132, @intCast(self.pc)) + offset));
+        self.pc = @as(u16, @intCast(@as(i32, @intCast(self.pc)) + offset));
         cycles += 1;
 
         if ((old_pc & 0xFF00) != (self.pc & 0xFF00)) {
@@ -1494,15 +1505,13 @@ fn bvs(self: *CPU) u8 {
 
 // $48, 1, 3
 fn pha(self: *CPU) u8 {
-    self.bus.write(0x0100 | @as(u16, @intCast(self.s)), self.a);
-    self.s -= 1;
+    self.push(self.a);
     return 3;
 }
 
 // $68, 1, 4
 fn pla(self: *CPU) u8 {
-    self.s += 1;
-    self.a = self.bus.read(0x0100 | @as(u16, @intCast(self.s)));
+    self.a = self.pop();
     self.setZN(self.a);
     return 4;
 }
@@ -1512,15 +1521,13 @@ fn php(self: *CPU) u8 {
     var value = self.p;
     value.b = true;
 
-    self.bus.write(0x0100 | @as(u16, @intCast(self.s)), @bitCast(value));
-    self.s -= 1;
+    self.push(@bitCast(value));
     return 3;
 }
 
 // $28, 1, 4
 fn plp(self: *CPU) u8 {
-    self.s += 1;
-    self.p = @bitCast(self.bus.read(0x0100 | @as(u16, @intCast(self.s))));
+    self.p = @bitCast(self.pop());
 
     self.p.b = false;
     self.p.f = true;
@@ -2127,7 +2134,7 @@ fn dcp(self: *CPU, address: u16) void {
     self.bus.write(address, original);
 
     const diff = self.a -% original;
-    
+
     self.p.c = self.a >= original;
     self.setZN(diff);
 }
@@ -2142,7 +2149,7 @@ fn isb(self: *CPU, address: u16) void {
 
 fn slo(self: *CPU, address: u16) void {
     var value = self.bus.read(address);
-    
+
     self.p.c = (value & 0x80) != 0;
     value <<= 1;
 
@@ -2200,6 +2207,16 @@ fn rra(self: *CPU, address: u16) void {
 }
 
 // helper
+
+fn push(self: *CPU, value: u8) void {
+    self.bus.write(@as(u16, 0x0100) | @as(u16, @intCast(self.s)), value);
+    self.s -%= 1;
+}
+
+fn pop(self: *CPU) u8 {
+    self.s +%= 1;
+    return self.bus.read(@as(u16, 0x0100) | @as(u16, @intCast(self.s)));
+}
 
 fn imm(self: *CPU) u8 {
     return self.fetch();

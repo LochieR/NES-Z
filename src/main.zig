@@ -5,6 +5,8 @@ const c = @cImport({
 
 const input = @import("input.zig");
 const CPU = @import("CPU.zig");
+const PPU = @import("PPU.zig");
+const RenderWindow = @import("RenderWindow.zig");
 
 const nestest: []const u8 = @embedFile("nestest.nes");
 
@@ -20,31 +22,55 @@ pub fn main() !void {
         @memcpy(cpu.rom_memory[0x0000..0x8000], rom.prg_rom);
     }
 
+    std.heap.c_allocator.free(rom.prg_rom);
+
     cpu.bus.rom = &cpu.rom_memory;
     cpu.reset();
+
+    std.debug.print("pc = ${X:04}\n", .{cpu.pc});
+    //if (cpu.pc != 0xC000) {
+    //    @panic("failed to get correct initial pc");
+    //}
 
     cpu.a = 0x00;
     cpu.x = 0x00;
     cpu.y = 0x00;
     cpu.s = 0xFD;
-    cpu.pc = 0xC000;
-    
+    //cpu.pc = 0xC000;
+
+    var ppu = PPU.init(&cpu);
+    ppu.reset();
+    ppu.nametable_mirroring = rom.nametable_mirroring;
+
+    if (rom.chr_is_ram) {
+        @memset(ppu.chr[0..], 0);
+    } else {
+        @memcpy(ppu.chr[0..], rom.chr);
+    }
+
+    std.heap.c_allocator.free(rom.chr);
+
+    cpu.bus.ppu = &ppu;
+
     var trace_file = try std.fs.cwd().createFile("trace.log", .{});
     defer trace_file.close();
 
-    var trace_writer = trace_file.deprecatedWriter();
+    var render_window = try RenderWindow.init(std.heap.c_allocator, 1);
+    defer render_window.deinit();
 
-    var steps: u64 = 0;
-    while (true) {
-        try trace(&cpu, &trace_writer);
-        const cycles = cpu.step();
-        //ppu.step(cycles * 3);
-        _ = cycles;
-        steps += 1;
+    //var trace_writer = trace_file.deprecatedWriter();
 
-        if (steps > 8990) {
-            break;
-        }
+    //var remaining_steps: u64 = 100000000000;
+    //var dont_reset_steps: bool = false;
+    while (render_window.windowOpen()) {
+        //try trace(&cpu, &trace_writer);
+
+        cpu.step();
+        ppu.step();
+        ppu.step();
+        ppu.step();
+
+        try render_window.draw();
     }
 
     // _ = c.glfwInit();

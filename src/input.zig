@@ -1,8 +1,13 @@
 const std = @import("std");
 
+const NametableMirroring = @import("PPU.zig").NametableMirroring;
+
 pub const INesROM = struct {
     prg_rom: []u8,
-    mapper: u8
+    chr: []u8,
+    chr_is_ram: bool,
+    nametable_mirroring: NametableMirroring,
+    mapper: u8,
 };
 
 pub fn loadINesROM(allocator: std.mem.Allocator, buffer: []const u8) !INesROM {
@@ -14,27 +19,53 @@ pub fn loadINesROM(allocator: std.mem.Allocator, buffer: []const u8) !INesROM {
     }
 
     const prg_rom_banks = header[4];
+    const chr_rom_banks = header[5];
     const flags6 = header[6];
     const flags7 = header[7];
 
-    const has_trainer = (flags6 & 0b0000_0100) != 0;
+    const has_trainer = (flags6 & 0x04) != 0;
     const mapper = (flags6 >> 4) | (flags7 & 0xF0);
 
     const prg_rom_size = @as(usize, @intCast(prg_rom_banks)) * 16 * 1024;
 
-    var offset: usize = 0;
+    const chr_rom_size = @as(usize, @intCast(chr_rom_banks)) * 8 * 1024;
+
+    var offset: usize = 16;
 
     if (has_trainer) {
         offset += 512;
     }
 
+    // PRG ROM
     const prg_rom = try allocator.alloc(u8, prg_rom_size);
     errdefer allocator.free(prg_rom);
 
-    @memcpy(prg_rom, buffer[16 + offset..16 + offset + prg_rom_size]);
+    @memcpy(prg_rom, buffer[offset..offset + prg_rom_size]);
+    offset += prg_rom_size;
 
-    return INesROM{
+    var chr: []u8 = undefined;
+    var chr_is_ram = false;
+
+    const nametable_mirroring: NametableMirroring = if ((flags6 & 0x01) != 0) .horizontal else .vertical;
+
+    if (chr_rom_size > 0) {
+        chr = try allocator.alloc(u8, chr_rom_size);
+        errdefer allocator.free(chr);
+
+        @memcpy(chr, buffer[offset..offset + chr_rom_size]);
+    } else {
+        chr = try allocator.alloc(u8, 8 * 1024);
+        errdefer allocator.free(chr);
+
+        @memset(chr, 0);
+        chr_is_ram = true;
+    }
+
+    return .{
         .prg_rom = prg_rom,
-        .mapper = mapper
+        .chr = chr,
+        .chr_is_ram = chr_is_ram,
+        .nametable_mirroring = nametable_mirroring,
+        .mapper = mapper,
     };
 }
