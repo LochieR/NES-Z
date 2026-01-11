@@ -79,9 +79,14 @@ t: u16 = 0, // temporary VRAM address
 x: u8 = 0,  // fine x scroll
 w: bool = false, // write toggle
 
+scroll_x: u8 = 0,
+scroll_y: u8 = 0,
+
 cycle: i16 = 0,
 scanline: i16 = 0,
 frame: u64 = 0,
+
+frame_complete: bool = false,
 
 vram: [0x0800]u8 = undefined,
 palette: [32]u8 = undefined,
@@ -93,6 +98,7 @@ chr: [0x2000]u8 = undefined, // $0000-$2000
 chr_is_ram: bool = undefined,
 
 framebuffer: [nes_width * nes_height]u32 = undefined,
+background_color_index: [nes_width * nes_height]u8 = undefined,
 
 read_buffer: u8 = 0,
 
@@ -124,6 +130,7 @@ pub fn read(self: *PPU, address: u16) u8 {
         0x2002 => blk: {
             const value: u8 = @bitCast(self.ppu_status.*);
             self.ppu_status.v = false;
+            self.ppu_status.s = false;
             self.w = false;
             break :blk value;
         },
@@ -154,10 +161,12 @@ fn writeScroll(self: *PPU, value: u8) void {
         self.x = value & 0b111;
         self.t = (self.t & ~@as(u16, 0b11111)) | @as(u16, @intCast(value >> 3));
         self.w = true;
+        self.scroll_x = value;
     } else { // vertical scroll
         self.t = (self.t & ~@as(u16, 0b111000000000000)) | (@as(u16, @intCast(value & 0b111)) << 12);
         self.t = (self.t & ~@as(u16, 0b1111100000)) | (@as(u16, @intCast(value >> 3)) << 5);
         self.w = false;
+        self.scroll_y = value;
     }
 }
 
@@ -214,6 +223,10 @@ pub fn step(self: *PPU) void {
     // Start of VBlank
     if (self.scanline == 241 and self.cycle == 1) {
         self.ppu_status.v = true;
+        self.frame_complete = true;
+
+        self.renderBackground();
+        self.renderSprites();
 
         if (self.ppu_ctrl.v) {
             self.cpu.nmi_requested = true;
@@ -223,32 +236,202 @@ pub fn step(self: *PPU) void {
     // End of VBlank (pre-render line)
     if (self.scanline == -1 and self.cycle == 1) {
         self.ppu_status.v = false;
+        self.frame_complete = false;
     }
 }
 
-fn renderBackground(self: *PPU) void {
-    for (0..30) |y_tile| {
-        for (0..32) |x_tile| {
-            const tile_index = self.vram[self.nametableAddress(@intCast(0x2000 + y_tile * 32 + x_tile))];
-            self.renderTile(tile_index, @intCast(x_tile * 8), @intCast(y_tile * 8));
+fn renderSprites(self: *PPU) void {
+    var sprites_on_scanline: [nes_height]u8 = undefined;
+    @memset(&sprites_on_scanline, 0);
+
+    for (0..64) |i| {
+        const base = i * 4;
+        const y = self.oam[base + 0] + 1;
+        const tile = self.oam[base + 1];
+        const attribute = self.oam[base + 2];
+        const x = self.oam[base + 3];
+
+        const sprite_height: u8 = if (self.ppu_ctrl.s == 1) 16 else 8;
+
+        for (0..sprite_height) |row| {
+            const scanline = y + row;
+            if (scanline >= nes_height) continue;
+
+            if (sprites_on_scanline[scanline] >= 8) {
+                self.ppu_status.o = true;
+                continue;
+            }
+
+            if (self.ppu_ctrl.s == 1) {
+                const sprite_table: usize = @as(usize, @intCast(tile & 1)) * 0x1000;
+                self.renderSpriteTileRow8x16(sprite_table, tile, x, scanline, attribute, i, row);
+            } else {
+                const sprite_table: usize = if (self.ppu_ctrl.s == 1) 0x1000 else 0x0000;
+                self.renderSpriteTileRow(sprite_table, tile, x, scanline, attribute, i, row);
+            }
+
+            sprites_on_scanline[scanline] += 1;
         }
     }
 }
 
-fn renderTile(self: *PPU, tile_index: u8, x: u16, y: u16) void {
-    const base = tile_index * 16;
+fn renderSpriteTileRow(self: *PPU, table_base: usize, tile_index: u8, x: u8, scanline: usize, attribute: u8, sprite_index: usize, row: usize) void {
+    const flip_h = (attribute & 0x40) != 0;
+    const flip_v = (attribute & 0x80) != 0;
+    const palette_index = attribute & 0x03;
+    const behind_background = (attribute & 0x20) != 0;
 
-    for (0..8) |row| {
-        const plane0 = self.chr[base + row];
-        const plane1 = self.chr[base + row + 8];
+    const src_row = if (flip_v) 7 - row else row;
+    const tile_base = table_base + @as(usize, tile_index) * 16;
 
-        for (0..8) |col| {
-            const bit0 = (plane0 >> (7 - col)) & 1;
-            const bit1 = (plane1 >> (7 - col)) & 1;
-            const color_index = (bit1 << 1) | bit0;
+    const plane0 = self.chr[tile_base + src_row];
+    const plane1 = self.chr[tile_base + src_row + 8];
 
-            const palette_color = self.palette[color_index];
-            self.framebuffer[(y + row) * 256 + (x + col)] = nesColorToRGBA(palette_color);
+    for (0..8) |col| {
+        const src_col = if (flip_h) 7 - col else col;
+        const bit_index = 7 - src_col;
+
+        const bit0 = (plane0 >> @intCast(bit_index)) & 1;
+        const bit1 = (plane1 >> @intCast(bit_index)) & 1;
+        const color_index = (bit1 << 1) | bit0;
+
+        if (color_index == 0) {
+            continue;
+        }
+
+        const screen_x = @as(usize, x) + col;
+        if (screen_x >= 256 or scanline >= 240) continue;
+
+        const pixel = scanline * 256 + screen_x;
+        const background = self.background_color_index[pixel];
+
+        if (sprite_index == 0 and background != 0) {
+            self.ppu_status.s = true;
+        }
+
+        if (behind_background and self.ppu_mask.b and background != 0) {
+            continue;
+        }
+
+        const nes_color = self.palette[(0x10 + @as(usize, @intCast(palette_index)) * 4 + @as(u16, @intCast(color_index))) & 0x1F];
+        self.framebuffer[pixel] = nesColorToRGBA(nes_color);
+    }
+}
+
+fn renderSpriteTileRow8x16(self: *PPU, table_base: usize, tile_index: u8, x: u8, scanline: usize, attribute: u8, sprite_index: usize, row: usize) void {
+    const flip_h = (attribute & 0x40) != 0;
+    const flip_v = (attribute & 0x80) != 0;
+    const palette_index = attribute & 0x03;
+    const behind_background = (attribute & 0x20) != 0;
+
+    var top_tile = tile_index & 0xFE;
+    var bottom_tile = top_tile + 1;
+
+    if (flip_v) {
+        const tmp = top_tile;
+        top_tile = bottom_tile;
+        bottom_tile = tmp;
+    }
+
+    const row_tile = if (row < 8) top_tile else bottom_tile;
+    const row_inside_tile = row % 8;
+
+    const tile_base = table_base + @as(usize, @intCast(row_tile)) * 16;
+
+    const src_row = if (flip_v) 7 - row_inside_tile else row_inside_tile;
+
+    const plane0 = self.chr[tile_base + src_row];
+    const plane1 = self.chr[tile_base + src_row + 8];
+
+    for (0..8) |col| {
+        const src_col = if (flip_h) 7 - col else col;
+        const bit0 = (plane0 >> @intCast(src_col)) & 1;
+        const bit1 = (plane1 >> @intCast(src_col)) & 1;
+        const color_index = (bit1 << 1) | bit0;
+
+        if (color_index == 0) {
+            continue;
+        }
+
+        const screen_x: isize = @as(isize, @intCast(x)) + @as(isize, @intCast(col));
+        if (screen_x < 0 or screen_x >= nes_width) {
+            continue;
+        }
+
+        const pixel = scanline * nes_width + @as(usize, @intCast(screen_x));
+        const background = self.background_color_index[pixel];
+
+        if (sprite_index == 0 and background != 0) {
+            self.ppu_status.s = true;
+        }
+
+        if (behind_background and self.ppu_mask.b and background != 0) {
+            continue;
+        }
+
+        const palette_address = (0x3F10 + @as(usize, palette_index) * 4 + @as(usize, color_index)) & 0x1F;
+        const nes_color = self.palette[palette_address];
+        self.framebuffer[pixel] = nesColorToRGBA(nes_color);
+    }
+}
+
+fn renderBackground(self: *PPU) void {
+    // The NES screen is 256x240 pixels
+    // Tiles are 8x8, so we have 32x30 tiles visible
+    const tiles_wide = 32;
+    const tiles_high = 30;
+
+    const scroll_x = @as(usize, self.scroll_x);
+    const scroll_y = @as(usize, self.scroll_y);
+
+    // Top-left tile offsets for scrolling
+    const tile_offset_x = scroll_x / 8;
+    const tile_offset_y = scroll_y / 8;
+
+    // Fine scroll inside the tile
+    const fine_x = scroll_x % 8;
+    const fine_y = scroll_y % 8;
+
+    for (0..tiles_high + 1) |tile_y| { // +1 for partially visible tiles at the bottom
+        for (0..tiles_wide + 1) |tile_x| { // +1 for partially visible tiles at the right
+            const map_x = tile_x + tile_offset_x;
+            const map_y = tile_y + tile_offset_y;
+
+            const tile_index = self.getNametableTile(map_x, map_y);
+            const attribute = self.getNametableAttribute(map_x, map_y);
+
+            const base = @as(usize, tile_index) * 16;
+            const tile_plane0 = self.chr[base .. base + 8];
+            const tile_plane1 = self.chr[base + 8 .. base + 16];
+
+            for (0..8) |py| {
+                const screen_y: isize = @as(isize, @intCast(tile_y * 8 + py)) - @as(isize, @intCast(fine_y));
+                if (screen_y < 0 or screen_y >= nes_height) continue;
+
+                const plane_y = py;
+                const p0 = tile_plane0[plane_y];
+                const p1 = tile_plane1[plane_y];
+
+                for (0..8) |px| {
+                    const screen_x = @as(isize, @intCast(tile_x * 8 + px)) - @as(isize, @intCast(fine_x));
+                    if (screen_x < 0 or screen_x >= nes_width) {
+                        continue;
+                    }
+
+                    const pixel = @as(usize, @intCast(screen_y)) * nes_width + @as(usize, @intCast(screen_x));
+
+                    const bit0 = (p0 >> @intCast(7 - px)) & 1;
+                    const bit1 = (p1 >> @intCast(7 - px)) & 1;
+                    const color_index = (bit1 << 1) | bit0;
+
+                    self.background_color_index[pixel] = color_index;
+
+                    const palette_index = if (color_index == 0) 0 else (@as(u8, attribute) << 2) | color_index;
+                    const palette_address = 0x3F00 + @as(u16, palette_index);
+                    const nes_color = self.palette[paletteIndex(palette_address)];
+                    self.framebuffer[pixel] = nesColorToRGBA(nes_color);
+                }
+            }
         }
     }
 }
@@ -263,6 +446,51 @@ fn vramIncrement(self: *PPU) void {
     } else {
         self.v +%= 1;
     }
+}
+
+fn getNametableTile(self: *PPU, x: usize, y: usize) u8 {
+    const nametable_x = x / 32; // which nametable horizontally
+    const nametable_y = y / 30; // which nametable vertically
+
+    var nametable_index: usize = 0;
+    switch (self.nametable_mirroring) {
+        .horizontal => nametable_index = if (nametable_y == 0) 0 else 1,
+        .vertical   => nametable_index = if (nametable_x == 0) 0 else 1,
+    }
+
+    const coarse_x = x % 32;
+    const coarse_y = y % 30;
+    const nametable_base = nametable_index * 0x400;
+    const address = nametable_base + coarse_y * 32 + coarse_x;
+    return self.vram[address];
+}
+
+fn getNametableAttribute(self: *PPU, x: usize, y: usize) u8 {
+    const nametable_x = x / 32;
+    const nametable_y = y / 30;
+
+    var nametable_index: usize = 0;
+    switch (self.nametable_mirroring) {
+        .horizontal => nametable_index = if (nametable_y == 0) 0 else 1,
+        .vertical   => nametable_index = if (nametable_x == 0) 0 else 1,
+    }
+
+    const coarse_x = x % 32;
+    const coarse_y = y % 30;
+
+    const nametable_base = nametable_index * 0x400;
+    const attribute_base = nametable_base + 960;
+
+    const attribute_x = coarse_x / 4;
+    const attribute_y = coarse_y / 4;
+    const byte_index = attribute_base + attribute_y * 8 + attribute_x;
+    const attribute_byte = self.vram[byte_index];
+
+    const quadrant_x = (coarse_x % 4) / 2;
+    const quadrant_y = (coarse_y % 4) / 2;
+    const shift = quadrant_y * 4 + quadrant_x * 2;
+
+    return (attribute_byte >> @intCast(shift)) & 0x03;
 }
 
 fn readData(self: *PPU) u8 {

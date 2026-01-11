@@ -104,7 +104,7 @@ pub const Device = struct {
 
     skip_frame: bool,
 
-    swapchain: ?Swapchain,
+    swapchain: ?*Swapchain,
 
     image_available_semaphores: [MaxFramesInFlight]vk.Semaphore,
     render_finished_semaphores: std.ArrayListUnmanaged(vk.Semaphore),
@@ -113,7 +113,7 @@ pub const Device = struct {
     pub fn beginFrame(self: *Device) !void {
         _ = try self.device.waitForFences(1, self.in_flight_fences[self.frame_index..(self.frame_index + 1)].ptr, .true, std.math.maxInt(u64));
         if (self.swapchain) |_| {
-            try self.swapchain.?.acquireNextImage();
+            try self.swapchain.?.acquireNextImage(self.frame_index);
         }
         try self.device.resetFences(1, self.in_flight_fences[self.frame_index..(self.frame_index + 1)].ptr);
     }
@@ -868,7 +868,8 @@ pub const Device = struct {
             try swapchain_obj.attachments.append(attachment);
         }
 
-        self.swapchain = swapchain_obj;
+        self.swapchain = try self.allocator.create(Swapchain);
+        self.swapchain.?.* = swapchain_obj;
 
         const semaphore_info = vk.SemaphoreCreateInfo{
             .s_type = .semaphore_create_info,
@@ -879,7 +880,7 @@ pub const Device = struct {
             try self.render_finished_semaphores.append(self.allocator, semaphore);
         }
 
-        return &self.swapchain.?;
+        return self.swapchain.?;
     }
 
     pub fn destroySwapchain(self: *Device, swapchain: *Swapchain) void {
@@ -906,6 +907,8 @@ pub const Device = struct {
         swapchain.attachments.deinit();
 
         self.device.destroySwapchainKHR(swapchain.swapchain, self.instance.vk_allocator);
+
+        self.allocator.destroy(swapchain);
     }
 
     pub fn createRenderPass(self: *Device, swapchain: *Swapchain, render_pass_info: *const RenderPassInfo) !RenderPass {
@@ -938,7 +941,6 @@ pub const Device = struct {
             .p_code = pipeline_info.vertex_shader.ptr,
         };
 
-        std.debug.print("vertex shader\n", .{});
         const vertex_shader_module = try self.device.createShaderModule(&vertex_module_create_info, self.instance.vk_allocator);
         errdefer self.device.destroyShaderModule(vertex_shader_module, self.instance.vk_allocator);
 
@@ -948,7 +950,6 @@ pub const Device = struct {
             .p_code = pipeline_info.pixel_shader.ptr
         };
 
-        std.debug.print("pixel shader\n", .{});
         const pixel_shader_module = try self.device.createShaderModule(&pixel_module_create_info, self.instance.vk_allocator);
         errdefer self.device.destroyShaderModule(pixel_shader_module, self.instance.vk_allocator);
 
@@ -1286,7 +1287,7 @@ pub const Device = struct {
         const view_info = vk.ImageViewCreateInfo{
             .image = image,
             .view_type = .@"2d",
-            .format = .r8g8b8a8_unorm,
+            .format = image_info.format,
             .subresource_range = .{
                 .aspect_mask = .{ .color_bit = true },
                 .base_mip_level = 0,

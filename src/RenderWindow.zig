@@ -3,6 +3,8 @@ const std = @import("std");
 const glfw = @import("Renderer/glfw.zig");
 const renderer = @import("Renderer/renderer.zig");
 
+const CPU = @import("CPU.zig");
+
 const RenderWindow = @This();
 
 const nes_width = @import("PPU.zig").nes_width;
@@ -36,11 +38,13 @@ command_list: renderer.CommandList = undefined,
 framebuffer_texture: renderer.Texture2D = undefined,
 sampler: renderer.Sampler = undefined,
 
+staging_buffer: renderer.Buffer = undefined,
+
 vertex_buffer: renderer.Buffer = undefined,
 
 scale: u32,
 
-pub fn init(allocator: std.mem.Allocator, scale: u32) !RenderWindow {
+pub fn init(allocator: std.mem.Allocator, cpu: *CPU, scale: u32) !RenderWindow {
     var self: RenderWindow = undefined;
     self.scale = scale;
 
@@ -51,6 +55,9 @@ pub fn init(allocator: std.mem.Allocator, scale: u32) !RenderWindow {
     glfw.c.glfwWindowHint(glfw.c.GLFW_CLIENT_API, glfw.c.GLFW_NO_API);
     glfw.c.glfwWindowHint(glfw.c.GLFW_RESIZABLE, glfw.c.GLFW_FALSE);
     self.window = glfw.c.glfwCreateWindow(@intCast(nes_width * scale), @intCast(nes_height * scale), "NES-Z", null, null);
+
+    _ = glfw.c.glfwSetKeyCallback(self.window, &keyCallback);
+    glfw.c.glfwSetWindowUserPointer(self.window, @ptrCast(cpu));
 
     const instance_info = renderer.InstanceInfo{
         .allocator = allocator,
@@ -152,7 +159,7 @@ pub fn init(allocator: std.mem.Allocator, scale: u32) !RenderWindow {
     self.command_list = self.device.createCommandList();
 
     var texture_data: [nes_width * nes_height]u32 = undefined;
-    @memset(&texture_data, 0xFFFFFFFF);
+    @memset(&texture_data, 0x00000000);
     self.framebuffer_texture = try self.device.createTexture2DFromData(nes_width, nes_height, std.mem.sliceAsBytes(&texture_data));
 
     const sampler_info = renderer.SamplerInfo{
@@ -184,11 +191,13 @@ pub fn init(allocator: std.mem.Allocator, scale: u32) !RenderWindow {
     };
 
     self.vertex_buffer = try self.device.createBufferWithData(.vertex_buffer, std.mem.sliceAsBytes(&vertices));
+    self.staging_buffer = try self.device.createBuffer(.staging_buffer, nes_width * nes_height * @sizeOf(u32));
 
     return self;
 }
 
 pub fn deinit(self: *RenderWindow) void {
+    self.device.destroyBuffer(&self.staging_buffer);
     self.device.destroyBuffer(&self.vertex_buffer);
     self.device.destroySampler(&self.sampler);
     self.device.destroyTexture2D(&self.framebuffer_texture);
@@ -208,15 +217,22 @@ pub fn windowOpen(self: *const RenderWindow) bool {
     return glfw.c.glfwWindowShouldClose(self.window) == glfw.c.GLFW_FALSE;
 }
 
-pub fn draw(self: *RenderWindow) !void {
+pub fn draw(self: *RenderWindow, framebuffer: []const u32) !void {
     const push_constants = PushConstants{
         .texture_size = .{ @floatFromInt(nes_width), @floatFromInt(nes_height) },
         .scale = @floatFromInt(self.scale)
     };
 
+    try self.staging_buffer.setData(std.mem.sliceAsBytes(framebuffer), 0);
+
     try self.device.beginFrame();
 
     self.command_list.begin();
+
+    try self.command_list.imageMemoryBarrier(&self.framebuffer_texture, .shader_read_only_optimal, .transfer_dst_optimal);
+    try self.command_list.copyBufferToImage(&self.staging_buffer, &self.framebuffer_texture);
+    try self.command_list.imageMemoryBarrier(&self.framebuffer_texture, .transfer_dst_optimal, .shader_read_only_optimal);
+
     try self.command_list.beginRenderPass(&self.render_pass);
 
     try self.command_list.bindPipeline(&self.pipeline);
@@ -238,4 +254,71 @@ pub fn draw(self: *RenderWindow) !void {
     try self.device.endFrame();
 
     glfw.c.glfwPollEvents();
+}
+
+fn keyCallback(window: ?*glfw.c.struct_GLFWwindow, key: c_int, scancode: c_int, action: c_int, mods: c_int) callconv(.c) void {
+    const cpu: *CPU = @ptrCast(@alignCast(glfw.c.glfwGetWindowUserPointer(window)));
+
+    _ = scancode;
+    _ = mods;
+
+    switch (key) {
+        glfw.c.GLFW_KEY_W, glfw.c.GLFW_KEY_UP => { // up
+            if (action == glfw.c.GLFW_PRESS) {
+                cpu.bus.controller.setButton(4, true);
+            } else if (action == glfw.c.GLFW_RELEASE) {
+                cpu.bus.controller.setButton(4, false);
+            }
+        },
+        glfw.c.GLFW_KEY_A, glfw.c.GLFW_KEY_LEFT => { // left
+            if (action == glfw.c.GLFW_PRESS) {
+                cpu.bus.controller.setButton(6, true);
+            } else if (action == glfw.c.GLFW_RELEASE) {
+                cpu.bus.controller.setButton(6, false);
+            }
+        },
+        glfw.c.GLFW_KEY_S, glfw.c.GLFW_KEY_DOWN => { // down
+            if (action == glfw.c.GLFW_PRESS) {
+                cpu.bus.controller.setButton(5, true);
+            } else if (action == glfw.c.GLFW_RELEASE) {
+                cpu.bus.controller.setButton(5, false);
+            }
+        },
+        glfw.c.GLFW_KEY_D, glfw.c.GLFW_KEY_RIGHT => { // right
+            if (action == glfw.c.GLFW_PRESS) {
+                cpu.bus.controller.setButton(7, true);
+            } else if (action == glfw.c.GLFW_RELEASE) {
+                cpu.bus.controller.setButton(7, false);
+            }
+        },
+        glfw.c.GLFW_KEY_BACKSPACE => { // select
+            if (action == glfw.c.GLFW_PRESS) {
+                cpu.bus.controller.setButton(2, true);
+            } else if (action == glfw.c.GLFW_RELEASE) {
+                cpu.bus.controller.setButton(2, false);
+            }
+        },
+        glfw.c.GLFW_KEY_ENTER => { // start
+            if (action == glfw.c.GLFW_PRESS) {
+                cpu.bus.controller.setButton(3, true);
+            } else if (action == glfw.c.GLFW_RELEASE) {
+                cpu.bus.controller.setButton(3, false);
+            }
+        },
+        glfw.c.GLFW_KEY_SPACE => { // A
+            if (action == glfw.c.GLFW_PRESS) {
+                cpu.bus.controller.setButton(0, true);
+            } else if (action == glfw.c.GLFW_RELEASE) {
+                cpu.bus.controller.setButton(0, false);
+            }
+        },
+        glfw.c.GLFW_KEY_LEFT_SHIFT => { // B
+            if (action == glfw.c.GLFW_PRESS) {
+                cpu.bus.controller.setButton(1, true);
+            } else if (action == glfw.c.GLFW_RELEASE) {
+                cpu.bus.controller.setButton(1, false);
+            }
+        },
+        else => {}
+    }
 }

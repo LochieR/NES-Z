@@ -6,9 +6,10 @@ const c = @cImport({
 const input = @import("input.zig");
 const CPU = @import("CPU.zig");
 const PPU = @import("PPU.zig");
+const Controller = @import("Controller.zig");
 const RenderWindow = @import("RenderWindow.zig");
 
-const nestest: []const u8 = @embedFile("nestest.nes");
+const nestest: []const u8 = @embedFile("smb.nes");
 
 pub fn main() !void {
     var cpu = CPU.init();
@@ -52,10 +53,13 @@ pub fn main() !void {
 
     cpu.bus.ppu = &ppu;
 
+    var controller = Controller{};
+    cpu.bus.controller = &controller;
+
     var trace_file = try std.fs.cwd().createFile("trace.log", .{});
     defer trace_file.close();
 
-    var render_window = try RenderWindow.init(std.heap.c_allocator, 1);
+    var render_window = try RenderWindow.init(std.heap.c_allocator, &cpu, 2);
     defer render_window.deinit();
 
     //var trace_writer = trace_file.deprecatedWriter();
@@ -65,12 +69,15 @@ pub fn main() !void {
     while (render_window.windowOpen()) {
         //try trace(&cpu, &trace_writer);
 
-        cpu.step();
-        ppu.step();
-        ppu.step();
-        ppu.step();
+        while (!ppu.frame_complete) {
+            cpu.step();
+            ppu.step();
+            ppu.step();
+            ppu.step();
+        }
 
-        try render_window.draw();
+        try render_window.draw(&ppu.framebuffer);
+        ppu.frame_complete = false;
     }
 
     // _ = c.glfwInit();

@@ -15,6 +15,6 @@ void main()
 {
     vec2 uv = (floor(gl_FragCoord.xy / u_Scale) + 0.5) / u_TextureSize;
 
-    o_Color = texture(sampler2D(u_Texture, u_Sampler), uv);
-    o_Color = vec4(1.0);
+    vec4 color = texture(sampler2D(u_Texture, u_Sampler), uv);
+    o_Color = vec4(color.a, color.b, color.g, color.r);
 }
