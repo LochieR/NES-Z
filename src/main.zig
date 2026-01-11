@@ -45,6 +45,7 @@ pub fn main() !void {
     std.heap.c_allocator.free(rom.chr);
 
     cpu.bus.ppu = &ppu;
+    ppu.cpu = &cpu;
 
     var controller = Controller{};
     cpu.bus.controller = &controller;

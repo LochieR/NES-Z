@@ -392,6 +392,14 @@ pub fn read(self: *PPU, input_address: u16) u8 {
     return 0;
 }
 
+fn readOAM(self: *PPU, address: u16) u8 {
+    return self.oam[address];
+}
+
+fn writeOAM(self: *PPU, address: u16, value: u8) void {
+    self.oam[address] = value;
+}
+
 fn readPalette(self: *PPU, palette_address: u16) u8 {
     var new_palette_address = palette_address;
 
@@ -432,4 +440,97 @@ pub fn write(self: *PPU, address_input: u16, value: u8) void {
 
         self.palette[palette_address] = value;
     }
+}
+
+pub fn getStatus(self: *PPU) u8 {
+    var status: u8 = 0;
+    if (self.sprite_overflow) {
+        status |= 1 << 5;
+    }
+    if (self.sprite_zero_hit) {
+        status |= 1 << 6;
+    }
+    if (self.vblank) {
+        status |= 1 << 7;
+    }
+
+    return status;
+}
+
+pub fn getData(self: *PPU) u8 {
+    var data = self.read(self.data_address);
+    self.data_address += self.data_address_increment;
+
+    if (self.data_address < 0x3F00) {
+        std.mem.swap(u8, &data, &self.data_buffer);
+    }
+
+    return data;
+}
+
+pub fn getOAMData(self: *PPU) u8 {
+    return self.readOAM(self.sprite_data_address);
+}
+
+pub fn setControl(self: *PPU, value: u8) void {
+    self.interrupt = (value & 0x80) != 0;
+    self.sprite_8x16 = (value & 0x20) != 0;
+    self.background_page = if ((value & 0x10) != 0) .high else .low;
+    self.sprite_page = if ((value & 0x08) != 0) .high else .low;
+    if ((value & 0x04) != 0) {
+        self.data_address_increment = 0x20;
+    } else {
+        self.data_address_increment = 1;
+    }
+
+    self.temp_address &= ~@as(u16, 0x0C00);
+    self.temp_address |= @as(u16, @intCast(value & 0x03)) << 10;
+}
+
+pub fn setMask(self: *PPU, value: u8) void {
+    self.greyscale_mode = (value & 0x01) != 0;
+    self.hide_edge_background = (value & 0x02) == 0;
+    self.hide_edge_sprites = (value & 0x04) == 0;
+    self.show_background = (value & 0x08) != 0;
+    self.show_sprites = (value & 0x10) != 0;
+}
+
+pub fn setOAMAddress(self: *PPU, value: u8) void {
+    self.sprite_data_address = @intCast(value);
+}
+
+pub fn setOAMData(self: *PPU, value: u8) void {
+    self.writeOAM(self.sprite_data_address, value);
+    self.sprite_data_address += 1;
+}
+
+pub fn setScroll(self: *PPU, value: u8) void {
+    if (self.first_write) {
+        self.temp_address &= ~@as(u16, 0x1F);
+        self.temp_address |= (value >> 3) & 0x1F;
+        self.fine_x_scroll = value & 0x07;
+        self.first_write = false;
+    } else {
+        self.temp_address &= ~@as(u16, 0x73E0);
+        self.temp_address |= (@as(u16, @intCast(value & 0x07)) << 12) | (@as(u16, @intCast(value & 0xF8)) << 2);
+        self.first_write = true;
+    }
+}
+
+pub fn setDataAddress(self: *PPU, value: u8) void {
+    if (self.first_write) {
+        self.temp_address &= ~@as(u16, 0xFF00);
+        self.temp_address |= @as(u16, @intCast(value & 0x3F)) << 8;
+        self.first_write = false;
+    } else {
+        self.temp_address &= ~@as(u16, 0xFF);
+        self.temp_address |= value;
+        self.data_address = self.temp_address;
+        self.first_write = true;
+    }
+}
+
+pub fn setData(self: *PPU, value: u8) void {
+    self.write(self.data_address, value);
+    self.data_address += self.data_address_increment;
 }

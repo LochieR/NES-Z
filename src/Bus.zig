@@ -13,7 +13,16 @@ controller: *Controller = undefined,
 pub fn read(self: *Bus, address: u16) u8 {
     return switch (address) {
         0x0000...0x1FFF => self.ram.*[address % 0x0800],
-        0x2000...0x3FFF => self.ppu.read(0x2000 + (address & 0x07)),
+        0x2000...0x3FFF => blk: {
+            const mirrored_address = address & 0x2007;
+
+            break :blk switch (mirrored_address) {
+                0x2002 => self.ppu.getStatus(),
+                0x2007 => self.ppu.getData(),
+                0x2004 => self.ppu.getOAMData(),
+                else => 0
+            };
+        },
         0x4016 => self.read4016(),
         0x4017 => 0,
         0x8000...0xFFFF => self.mapper.readPRG(address),
@@ -28,7 +37,20 @@ pub fn read(self: *Bus, address: u16) u8 {
 pub fn write(self: *Bus, address: u16, value: u8) void {
     switch (address) {
         0x0000...0x1FFF => self.ram.*[address % 0x0800] = value, // CPU RAM
-        0x2000...0x3FFF => self.ppu.write(0x2000 + (address & 0x07), value), // PPU registers $2000-$2007 (and mirror)
+        0x2000...0x3FFF => blk: {
+            const mirrored_address = address & 0x2007;
+
+            break :blk switch (mirrored_address) {
+                0x2000 => self.ppu.setControl(value),
+                0x2001 => self.ppu.setMask(value),
+                0x2003 => self.ppu.setOAMAddress(value),
+                0x2004 => self.ppu.setOAMData(value),
+                0x2005 => self.ppu.setScroll(value),
+                0x2006 => self.ppu.setDataAddress(value),
+                0x2007 => self.ppu.setData(value),
+                else => {}
+            };
+        },
         0x4000...0x4015 => return, // for APU and I/O registers
         0x4016 => self.write4016(value),
         0x4017 => return,
