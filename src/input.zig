@@ -1,13 +1,15 @@
 const std = @import("std");
 
-const NametableMirroring = @import("PPU.zig").NametableMirroring;
+const NametableMirroring = @import("Mapper.zig").NametableMirroring;
+const MapperType = @import("Mapper.zig").MapperType;
 
 pub const INesROM = struct {
     prg_rom: []u8,
+    one_page_prg: bool,
     chr: []u8,
     chr_is_ram: bool,
     nametable_mirroring: NametableMirroring,
-    mapper: u8,
+    mapper: MapperType,
 };
 
 pub fn loadINesROM(allocator: std.mem.Allocator, buffer: []const u8) !INesROM {
@@ -25,6 +27,10 @@ pub fn loadINesROM(allocator: std.mem.Allocator, buffer: []const u8) !INesROM {
 
     const has_trainer = (flags6 & 0x04) != 0;
     const mapper = (flags6 >> 4) | (flags7 & 0xF0);
+
+    if (mapper != 0) {
+        return error.UnsupportedMapper;
+    }
 
     const prg_rom_size = @as(usize, @intCast(prg_rom_banks)) * 16 * 1024;
 
@@ -63,9 +69,10 @@ pub fn loadINesROM(allocator: std.mem.Allocator, buffer: []const u8) !INesROM {
 
     return .{
         .prg_rom = prg_rom,
+        .one_page_prg = prg_rom_banks == 1,
         .chr = chr,
         .chr_is_ram = chr_is_ram,
         .nametable_mirroring = nametable_mirroring,
-        .mapper = mapper,
+        .mapper = @enumFromInt(mapper),
     };
 }

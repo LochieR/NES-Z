@@ -6,6 +6,7 @@ const c = @cImport({
 const input = @import("input.zig");
 const CPU = @import("CPU.zig");
 const PPU = @import("PPU.zig");
+const Mapper = @import("Mapper.zig");
 const Controller = @import("Controller.zig");
 const RenderWindow = @import("RenderWindow.zig");
 
@@ -14,24 +15,21 @@ const nestest: []const u8 = @embedFile("smb.nes");
 pub fn main() !void {
     var cpu = CPU.init();
 
-    const rom = try input.loadINesROM(std.heap.c_allocator, nestest);
+    const allocator = std.heap.c_allocator;
 
-    if (rom.prg_rom.len == 0x4000) {
-        @memcpy(cpu.rom_memory[0x0000..0x4000], rom.prg_rom);
-        @memcpy(cpu.rom_memory[0x4000..0x8000], rom.prg_rom);
-    } else if (rom.prg_rom.len == 0x8000) {
-        @memcpy(cpu.rom_memory[0x0000..0x8000], rom.prg_rom);
-    }
+    const rom = try input.loadINesROM(allocator, nestest);
+    var mapper = try allocator.create(Mapper);
+    defer allocator.destroy(mapper);
+
+    try mapper.init(allocator, rom);
+    defer mapper.deinit();
 
     std.heap.c_allocator.free(rom.prg_rom);
 
-    cpu.bus.rom = &cpu.rom_memory;
+    cpu.bus.mapper = mapper;
     cpu.reset();
 
     std.debug.print("pc = ${X:04}\n", .{cpu.pc});
-    //if (cpu.pc != 0xC000) {
-    //    @panic("failed to get correct initial pc");
-    //}
 
     cpu.a = 0x00;
     cpu.x = 0x00;
@@ -39,15 +37,10 @@ pub fn main() !void {
     cpu.s = 0xFD;
     //cpu.pc = 0xC000;
 
-    var ppu = PPU.init(&cpu);
-    ppu.reset();
-    ppu.nametable_mirroring = rom.nametable_mirroring;
+    var ppu = PPU.init();
+    ppu.reset(mapper);
 
-    if (rom.chr_is_ram) {
-        @memset(ppu.chr[0..], 0);
-    } else {
-        @memcpy(ppu.chr[0..], rom.chr);
-    }
+    ppu.mapper = mapper;
 
     std.heap.c_allocator.free(rom.chr);
 

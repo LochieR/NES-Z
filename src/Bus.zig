@@ -1,12 +1,13 @@
 const std = @import("std");
 const PPU = @import("PPU.zig");
+const Mapper = @import("Mapper.zig");
 const Controller = @import("Controller.zig");
 
 const Bus = @This();
 
 ram: *[0x0800]u8 = undefined,
+mapper: *Mapper = undefined,
 ppu: *PPU = undefined,
-rom: *[0x8000]u8 = undefined,
 controller: *Controller = undefined,
 
 pub fn read(self: *Bus, address: u16) u8 {
@@ -15,7 +16,7 @@ pub fn read(self: *Bus, address: u16) u8 {
         0x2000...0x3FFF => self.ppu.read(0x2000 + (address & 0x07)),
         0x4016 => self.read4016(),
         0x4017 => 0,
-        0x8000...0xFFFF => self.rom.*[address - 0x8000],
+        0x8000...0xFFFF => self.mapper.readPRG(address),
 
         else => {
             std.debug.print("unvalid read address: ${X:04}\n", .{address});
@@ -31,7 +32,7 @@ pub fn write(self: *Bus, address: u16, value: u8) void {
         0x4000...0x4015 => return, // for APU and I/O registers
         0x4016 => self.write4016(value),
         0x4017 => return,
-        0x8000...0xFFFF => return, // ROM
+        0x8000...0xFFFF => self.mapper.writePRG(address, value),
 
         else => unreachable // not implemented
     }
