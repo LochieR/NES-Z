@@ -31,7 +31,9 @@ pub const MapperVTable = struct {
     writeCHR: *const fn (*anyopaque, u16, u8) void,
     readCHR: *const fn (*anyopaque, u16) u8,
 
-    scanlineIQR: ?*const fn (*anyopaque) void,
+    readCHRSlice: *const fn (*anyopaque, u16, u16) []const u8,
+
+    scanlineIRQ: ?*const fn (*anyopaque) void,
 };
 
 mapper_type: MapperType,
@@ -79,8 +81,12 @@ pub fn readCHR(self: *Mapper, address: u16) u8 {
     return self.vtable.readCHR(self.mapper_handle, address);
 }
 
-pub fn scanlineIQR(self: *Mapper) void {
-    if (self.vtable.scanlineIQR) |scanline_iqr_fn| {
-        scanline_iqr_fn(self.mapper_handle);
+pub fn readCHRSlice(self: *Mapper, start: u16, end: u16) []const u8 {
+    return self.vtable.readCHRSlice(self.mapper_handle, start, end);
+}
+
+pub fn scanlineIRQ(self: *Mapper) void {
+    if (self.vtable.scanlineIRQ) |scanline_irq_fn| {
+        scanline_irq_fn(self.mapper_handle);
     }
 }

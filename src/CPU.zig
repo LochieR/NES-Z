@@ -47,7 +47,7 @@ p: StatusFlags = .{
 },
 
 cycles: u64 = 0,
-remaining_cycles: u8 = 0,
+remaining_cycles: u16 = 0,
 
 nmi_requested: bool = false,
 bus: Bus = .{},

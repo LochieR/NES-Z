@@ -37,7 +37,7 @@ pub fn main() !void {
     cpu.s = 0xFD;
     //cpu.pc = 0xC000;
 
-    var ppu = PPU.init();
+    var ppu = PPU.init(&cpu);
     ppu.reset(mapper);
 
     ppu.mapper = mapper;
@@ -45,6 +45,7 @@ pub fn main() !void {
     std.heap.c_allocator.free(rom.chr);
 
     cpu.bus.ppu = &ppu;
+    cpu.bus.cpu = &cpu;
     ppu.cpu = &cpu;
 
     var controller = Controller{};
@@ -53,7 +54,7 @@ pub fn main() !void {
     var trace_file = try std.fs.cwd().createFile("trace.log", .{});
     defer trace_file.close();
 
-    var render_window = try RenderWindow.init(std.heap.c_allocator, &cpu, 2);
+    var render_window = try RenderWindow.init(std.heap.c_allocator, &cpu, 1);
     defer render_window.deinit();
 
     //var trace_writer = trace_file.deprecatedWriter();
@@ -68,6 +69,10 @@ pub fn main() !void {
             ppu.step();
             ppu.step();
             ppu.step();
+        }
+
+        if (RenderWindow.glfw.c.glfwGetKey(render_window.window, RenderWindow.glfw.c.GLFW_KEY_P) == RenderWindow.glfw.c.GLFW_PRESS) {
+            std.debug.print("palette = {any}\n", .{ppu.palette});
         }
 
         try render_window.draw(&ppu.framebuffer);

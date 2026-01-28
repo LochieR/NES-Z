@@ -10,7 +10,8 @@ pub const mapper_nrom_vtable = Mapper.MapperVTable{
     .readPRG = opaqueReadPRG,
     .writeCHR = opaqueWriteCHR,
     .readCHR = opaqueReadCHR,
-    .scanlineIQR = null,
+    .readCHRSlice = opaqueReadCHRSlice,
+    .scanlineIRQ = null,
 };
 
 mapper: *Mapper,
@@ -68,6 +69,10 @@ pub fn readCHR(self: *MapperNROM, address: u16) u8 {
     return self.chr[address];
 }
 
+pub fn readCHRSlice(self: *MapperNROM, start: u16, end: u16) []const u8 {
+    return self.chr[start..end];
+}
+
 fn opaqueWritePRG(ptr: *anyopaque, address: u16, value: u8) void {
     var nrom: *MapperNROM = @ptrCast(@alignCast(ptr));
     nrom.writePRG(address, value);
@@ -86,4 +91,9 @@ fn opaqueWriteCHR(ptr: *anyopaque, address: u16, value: u8) void {
 fn opaqueReadCHR(ptr: *anyopaque, address: u16) u8 {
     var nrom: *MapperNROM = @ptrCast(@alignCast(ptr));
     return nrom.readCHR(address);
+}
+
+fn opaqueReadCHRSlice(ptr: *anyopaque, start: u16, end: u16) []const u8 {
+    var nrom: *MapperNROM = @ptrCast(@alignCast(ptr));
+    return nrom.readCHRSlice(start, end);
 }

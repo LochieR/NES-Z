@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const glfw = @import("Renderer/glfw.zig");
+pub const glfw = @import("Renderer/glfw.zig");
 const renderer = @import("Renderer/renderer.zig");
 
 const CPU = @import("CPU.zig");
